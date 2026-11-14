@@ -55,6 +55,9 @@ class Params:
     be_at_r: float = 1.0
     trail_atr: float = 1.30
     commission: float = 0.0004  # per side
+    # NOT in Pine: a signal whose risk (entry->SL) is < min_risk_fees x round-trip commission is kept as an unpublished
+    # shadow trade (Pine position/cooldown state unchanged) because its R would be dominated by fees (e.g. USDCUSDT).
+    min_risk_fees: float = 2.0
 
 
 PRESETS = {

@@ -75,6 +75,12 @@ def open_trade(sig: dict, p: Params) -> Optional[Trade]:
                  pattern_sl=raw, last_t=sig["t"], last_close=entry, pattern=sig.get("pattern") or {})
 
 
+def fee_dominated(tr: Trade, p: Params) -> bool:
+    """Deviation from Pine: risk below min_risk_fees x round-trip commission (2 x 0.08% = 0.16% of entry by default)
+    -> the trade is not published (it still runs as a shadow so the Pine position/cooldown state is unchanged)."""
+    return p.min_risk_fees > 0 and tr.risk < p.min_risk_fees * 2.0 * p.commission * tr.entry
+
+
 def pnl(tr: Trade, exit_price: float, p: Params):
     """(R multiple, % of entry) after commission on both sides."""
     gross = (exit_price - tr.entry) if tr.side == "LONG" else (tr.entry - exit_price)

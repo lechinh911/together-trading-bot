@@ -29,6 +29,8 @@ Binance REST (ít)         Binance WebSocket (realtime)
 ### 1.1 Danh sách mã (`universe.py`, `bot.refresh_universe`)
 - Hợp đồng `contractType = PERPETUAL`, `status = TRADING`, `quoteAsset = USDT`, khối lượng 24h `quoteVolume ≥ 1.000.000` USDT
   (`TBOT_MIN_QVOL`). Làm mới mỗi giờ (2 lệnh REST: exchangeInfo weight 1 + ticker/24hr weight 40).
+- Loại stablecoin/mã neo giá (USDC, FDUSD, TUSD, USDP, DAI, BUSD, USDE, PYUSD, RLUSD, USD1, USDS… — `STABLE_BASES`) và
+  mọi mã có biên độ 24h `(high − low)/giá < 0,3 %` (khác Pine — xem mục 5).
 - Mã đang có lệnh ảo mở vẫn được giữ (nếu còn TRADING) dù volume tụt dưới ngưỡng.
 - Nếu REST lỗi lúc khởi động: dùng danh sách đã lưu trong SQLite.
 - Khung: `5m, 15m, 1h, 4h, 1d` → ≈ 470 mã × 5 = ≈ 2.350 luồng.
@@ -174,6 +176,11 @@ mới, Lệnh đang mở, Lệnh đã đóng, Thống kê (winrate theo khung/ch
 
 ## 5. Khác biệt còn lại so với TradingView / Pine (đã biết)
 - Chỉ có preset Active (tham số khác: `TBOT_PARAMS` JSON ghi đè). Không vẽ hình (box/label/bảng).
+- **Khác Pine có chủ đích (2026-11-15, sau lệnh USDCUSDT 1h: rủi ro ≈ 1 tick, phí 0,04 %/chiều → −7,97R):**
+  (1) danh sách mã bỏ stablecoin/mã neo giá và mã biên độ 24h < 0,3 % (mục 1.1);
+  (2) tín hiệu có rủi ro (entry→SL) < `min_risk_fees` (2) × phí khứ hồi (2 × 0,04 %) = **0,16 % giá vào** không được
+  công khai: vẫn chạy như lệnh bóng để trạng thái vị thế/cooldown giống Pine, chỉ không lên dashboard
+  (`counters.fee_dominated`, log `skip fee-dominated`).
 - Lịch sử chỉ báo ngắn hơn TradingView (mục 2.1); khởi động lại → phát lại 600 nến, trạng thái setup/vị thế có thể khác
   một chuỗi chạy liên tục nhiều ngày.
 - HTF theo ngữ nghĩa nến đã xác nhận (mục 2.7), không theo giá trị 4h đang chạy của chart live.

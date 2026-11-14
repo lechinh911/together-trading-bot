@@ -13,7 +13,7 @@ from typing import Optional
 
 from .config import Params
 from .engine import Engine
-from .trades import Trade, check_exit, manage, open_trade
+from .trades import Trade, check_exit, manage, open_trade, fee_dominated
 
 
 class PairStrategy:
@@ -45,7 +45,7 @@ class PairStrategy:
             opened = open_trade(sig, self.p)
             if opened is not None:
                 self.trade = opened
-                self.trade_public = publish
+                self.trade_public = publish and not fee_dominated(opened, self.p)
         if closed is not None:
             self.last_exit_idx = i
         return sig, opened, closed

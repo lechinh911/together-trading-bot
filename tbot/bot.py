@@ -82,7 +82,7 @@ class Bot:
         self.signals_log: list = self.store.kv_get("signals_log", [])
         self.started = time.time()
         self.counters = dict(ws_msgs=0, closed_bars=0, live_bars=0, gaps=0, backfills=0, signals=0, signals_skipped=0,
-                             ws_silence=0, resumes=0, catchups=0)
+                             ws_silence=0, resumes=0, catchups=0, fee_dominated=0)
         self.startup = dict(rest_calls=None, rest_weight=None, warm_done_at=None)
         self.universe_at = 0.0
         self.dirty_event = False
@@ -258,7 +258,10 @@ class Bot:
         elif st.trade is not None and st.trade_public and live and opened is None:
             self.store.save_trade(st.trade)
         if sig is not None:
-            if publish and opened is not None:
+            if publish and opened is not None and not st.trade_public:
+                self.counters["fee_dominated"] += 1
+                log.info("skip fee-dominated %s %s %s risk=%.4f%%", sig["symbol"], sig["tf"], sig["side"], opened.risk / opened.entry * 100)
+            elif publish and opened is not None:
                 self.store.save_trade(opened)
                 self.open[key] = opened
                 rec = dict(symbol=sig["symbol"], tf=sig["tf"], side=sig["side"], t=sig["t"], entry=sig["entry"],

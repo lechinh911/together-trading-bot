@@ -122,3 +122,22 @@ def test_close_ema_series_trims_and_matches_ema():
     for i in range(200):
         s.add(i * H, float(i))
     assert len(s.t) <= 110 and s.t[-1] == 199 * H and s.es[-1] == pytest.approx(198.0)
+
+
+def test_universe_excludes_stablecoins_and_flat_pairs():
+    ei = {"symbols": [dict(symbol=s, baseAsset=b, contractType="PERPETUAL", status="TRADING", quoteAsset="USDT")
+                      for s, b in [("BTCUSDT", "BTC"), ("USDCUSDT", "USDC"), ("FDUSDUSDT", "FDUSD"), ("FLATUSDT", "FLAT")]]}
+    t = lambda s, hi, lo, last: dict(symbol=s, quoteVolume="9e9", highPrice=hi, lowPrice=lo, lastPrice=last)
+    tk = [t("BTCUSDT", "96000", "94000", "95000"), t("USDCUSDT", "1.01", "0.99", "1.0"),
+          t("FDUSDUSDT", "1.0", "0.9", "0.95"), t("FLATUSDT", "1.001", "0.999", "1.0")]
+    assert [s for s, _ in filter_universe(ei, tk, 1_000_000)] == ["BTCUSDT"]
+
+
+def test_fee_dominated_trade_runs_as_shadow():
+    from tbot.config import Params
+    from tbot.trades import fee_dominated, open_trade
+    p = Params()
+    sig = dict(symbol="USDCUSDT", tf="1h", side="SHORT", t=0, entry=1.000096, atr=0.0001, pattern_sl=1.000196)
+    assert fee_dominated(open_trade(sig, p), p)  # risk 0.01% < 2 x 0.08%
+    sig.update(symbol="BTCUSDT", entry=95000.0, atr=300.0, pattern_sl=95400.0)
+    assert not fee_dominated(open_trade(sig, p), p)  # risk 0.42%
