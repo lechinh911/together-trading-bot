@@ -20,28 +20,14 @@ trên các khung **5m, 15m, 1h, 4h, 1d**, theo dõi **lệnh ảo** và xuất d
   khởi động lại chỉ cần bù phần nến còn thiếu.
 
 ## Logic tín hiệu (đồng bộ với Pine v4 chính thức)
-Nguồn chuẩn: Pine `2 Day/2 Dinh v4 -> Break -> EMA Momentum` (strategy, preset Active). Thứ tự xử lý mỗi nến ĐÃ ĐÓNG
-giống Pine: (1) lệnh dừng/chốt lời đặt từ nến trước được kiểm tra trên nến này; (2) chỉ báo → pivot → mô hình → gãy/hủy
-→ tín hiệu (`coolOk = bar_index − lastExitBar ≥ cooldown`, chỉ vào lệnh khi không có vị thế, setup chỉ bị xóa khi lệnh
-thực sự được vào và risk > 0) → dời hòa vốn/trailing tại giá đóng (áp dụng từ nến sau); (3) nến có lệnh đóng →
-`lastExitBar`. Không bao giờ dùng nến đang hình thành. Khi khởi động, bot chạy lại lịch sử với lệnh "bóng" (không công
-bố) để trạng thái setup/vị thế/cooldown khớp Pine.
+Chi tiết từng bước Pine ↔ code, vòng đời lệnh ảo, xuất bản dữ liệu và các khác biệt còn lại: **[docs/LOGIC.md](docs/LOGIC.md)**.
 
-Khác biệt có chủ đích: khung HTF theo từng khung (5m→1h, 15m→4h, 1h→4h, 4h→1D, 1D→1W) thay vì mặc định `240` của Pine;
-HTF lấy nến HTF đã đóng có giờ đóng ≤ giờ đóng nến hiện tại (như `lookahead_off` trên nến lịch sử). Nếu SL và TP cùng
-chạm trong một nến, bot giả định SL trước (TradingView mô phỏng theo đường đi OHLC nên có thể khác). Kiểm thử
-`tests/test_pine_parity.py` so khớp tín hiệu/lệnh/giá thoát với một mô phỏng tham chiếu độc lập viết theo từng dòng Pine
-trên dữ liệu Binance thật (chưa đối chiếu được với TradingView thật).
-- Pivot 5/5, ATR14 (RMA). Cụm đỉnh/đáy: ≥ 3 nến trong 0,5×ATR, hoặc spike nhô ≥ 1×ATR.
-- 2 đáy: đáy 2 không thủng đáy 1 quá 0,75×ATR, cách 5–100 nến, hồi ≥ 55%, chiều cao ≥ 1,6×ATR; neckline = đỉnh cao
-  nhất giữa 2 đáy; SL mô hình = đáy thấp hơn. 2 đỉnh đối xứng. Quét lại (k2) các nến chờ xác nhận pivot.
-- **Chất lượng** = 0,4×đối xứng + 0,3×khoảng cách + 0,3×chiều cao ≥ 0,40. Mô hình ngược chiều hủy setup đang chờ.
-- **Gãy**: nến đóng vượt neckline ≥ 0,15×ATR với khối lượng ≥ 1,15×SMA20.
-- **Tín hiệu**: EMA20/EMA50 đúng chiều, khoảng cách ≥ 0,30×ATR (bắt buộc), điểm momentum ≥ 2/3, ADX14 ≥ 20,
-  xu hướng khung lớn (giá đóng nến đã đóng gần nhất so với EMA50: 5m→1h, 15m→4h, 1h→4h, 4h→1D, 1D→1W),
-  nghỉ 5 nến sau khi đóng lệnh (≥ 5 nến tính từ nến đóng lệnh), mỗi mã + khung tối đa 1 lệnh.
-- **Lệnh ảo**: vào tại giá đóng nến tín hiệu; SL = đáy/đỉnh mô hình, tối đa 3×ATR; TP = 1,5R; chạm +1R → dời SL về
-  hòa vốn và trailing `close − 1,3×ATR`. Nếu SL và TP cùng chạm trong 1 nến → giả định SL trước. Phí 0,04%/chiều.
+Tóm tắt (preset Active, chỉ nến đã đóng): pivot 5/5 (luật hòa TradingView) + cụm ≥ 3 nến trong 0,5×ATR hoặc spike
+≥ 1×ATR → 2 đáy/2 đỉnh (cách 5–100 nến, hồi ≥ 55 %, cao ≥ 1,6×ATR, dung sai 0,75×ATR, chất lượng ≥ 0,40) → gãy
+neckline ≥ 0,15×ATR với volume ≥ 1,15×SMA20 (≤ 50 nến) → EMA20/50 đúng chiều, khoảng cách ≥ 0,30×ATR, momentum ≥ 2/3,
+ADX14 ≥ 20, **HTF 4h cho mọi khung** (close nến 4h đã xác nhận so với EMA50 4h), cooldown 5 nến từ nến đóng lệnh,
+1 lệnh/mã/khung. Lệnh ảo: vào giá đóng, SL mô hình siết ≤ 3×ATR, TP 1,5R, +1R → hòa vốn + trailing 1,3×ATR, khớp
+SL/TP theo broker emulator TradingView (gap ở giá mở, đường đi O-H-L-C/O-L-H-C), phí 0,04 %/chiều.
 
 ## Chạy
 ```bash
@@ -50,8 +36,8 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 ./scripts/install_site.sh /workspace/ultimate/frontend   # cài giao diện web
 ./scripts/run.sh                    # chạy bot (log: data/logs/bot.log, trạng thái: data/status.json)
 ```
-Biến môi trường tùy chọn: `TBOT_MIN_QVOL`, `TBOT_WEIGHT_BUDGET`, `TBOT_SITE`, `TBOT_DATA`, `TBOT_DEPLOY`,
-`TBOT_PARAMS` (JSON ghi đè tham số, ví dụ `{"min_quality":0.5}`).
+Biến môi trường tùy chọn: `TBOT_MIN_QVOL`, `TBOT_WEIGHT_BUDGET`, `TBOT_DATA`, `TBOT_PUSH` (0 = không đẩy GitHub),
+`TBOT_PARAMS` (JSON ghi đè tham số, ví dụ `{"min_quality":0.5}`); `TBOT_SITE` chỉ dùng cho `scripts/install_site.sh`.
 
 ## Website
 `web/` là dashboard tĩnh (tiếng Việt, giờ UTC+7): Tín hiệu mới, Lệnh đang mở, Lệnh đã đóng, Thống kê (tỷ lệ thắng
@@ -64,7 +50,16 @@ Token GitHub chỉ nằm trong biến môi trường `GITHUB_TOKEN_TOGETHER`, gi
 (không ghi vào file/log).
 
 ## Cấu trúc
-`tbot/engine.py` (phát hiện mô hình + tín hiệu), `tbot/trades.py` (lệnh ảo), `tbot/indicators.py` (EMA/RMA/ATR/DMI),
-`tbot/ratelimit.py`, `tbot/rest.py`, `tbot/universe.py`, `tbot/htf.py`, `tbot/store.py`, `tbot/publisher.py`, `tbot/bot.py`.
-Kiểm thử trong `tests/` (phát hiện trên dữ liệu Binance thật khớp bản port độc lập v2, lệnh ảo, quy tắc SL trước,
-bộ giới hạn, lọc mã, khung lớn, bù nến thiếu).
+| file | vai trò |
+|---|---|
+| `tbot/engine.py` | pivot, cụm/spike, 2 đáy/2 đỉnh, gãy/hủy, tín hiệu (Pine bước 2–6) |
+| `tbot/strategy.py` | một "chiến lược Pine" cho mỗi mã+khung: thứ tự broker → script, 1 vị thế, cooldown |
+| `tbot/trades.py` | lệnh ảo: SL/TP, khớp lệnh kiểu TradingView, hòa vốn + trailing, PnL |
+| `tbot/htf.py` | HTF 4h (`request.security("240", lookahead_off)`) |
+| `tbot/indicators.py` | EMA/RMA/ATR/SMA/DMI/RSI kiểu Pine |
+| `tbot/bot.py` | asyncio: danh sách mã, nạp/bù nến, WebSocket, lệnh công khai/bóng |
+| `tbot/rest.py`, `tbot/ratelimit.py` | REST công khai + giới hạn weight/back-off |
+| `tbot/universe.py`, `tbot/store.py` | lọc mã, SQLite |
+| `tbot/publisher.py`, `tbot/gitpush.py` | bot.json/status.json, đẩy nhánh `data` |
+| `web/` | dashboard |
+| `tests/` | 36 test, gồm parity với mô phỏng Pine tham chiếu và ca SIREN/WOO |
