@@ -43,6 +43,7 @@ function dur(s) {
   return (d ? d + 'n ' : '') + (h ? h + 'g ' : '') + m + 'p';
 }
 const TFMS = {'5m': 3e5, '15m': 9e5, '1h': 3.6e6, '4h': 1.44e7, '1d': 8.64e7};
+const TVI = {'5m': '5', '15m': '15', '1h': '60', '4h': '240', '1d': 'D'};
 const REASON = {tp: 'Chốt lời 1.5R', sl: 'Cắt lỗ', be: 'Hòa vốn', trail: 'Trailing'};
 
 // ---------- small builders ----------
@@ -51,7 +52,8 @@ const tfTag = tf => el('span', 'tf', tf);
 function symCell(r) {
   const f = document.createDocumentFragment();
   const a = el('a', 'sym', r.symbol.replace(/USDT$/, ''));
-  a.href = 'https://www.binance.com/vi/futures/' + encodeURIComponent(r.symbol);
+  a.href = 'https://www.tradingview.com/chart/?symbol=' + encodeURIComponent('BINANCE:' + r.symbol + '.P') + '&interval=' + (TVI[r.tf] || '60');
+  a.title = 'Mở TradingView ' + r.symbol + ' ' + r.tf;
   a.target = '_blank'; a.rel = 'noopener';
   a.appendChild(el('small', null, 'USDT'));
   f.appendChild(a);
