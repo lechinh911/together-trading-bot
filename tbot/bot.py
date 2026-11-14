@@ -1,5 +1,6 @@
-"""Asyncio service: universe -> history backfill (rate-limited REST) -> realtime kline WebSockets -> engine ->
-virtual trades -> JSON for the website. Signal-only: no orders, no API keys."""
+"""Asyncio service: universe -> history warm-up (stored candles + rate-limited REST) -> realtime kline WebSockets
+(closed candles only) -> PairStrategy (engine + virtual trade) per symbol+TF -> SQLite -> bot.json (GitHub `data`
+branch) for the dashboard. Signal-only: no orders, no API keys."""
 from __future__ import annotations
 
 import asyncio
@@ -13,15 +14,15 @@ from typing import Optional
 
 import aiohttp
 
-from .config import HTF_MAP, TF_MS, Settings
+from .config import HTF_TF, TF_MS, Settings
 from .engine import Engine
+from .htf import CloseEmaSeries, htf_dir
 from .strategy import PairStrategy
-from .htf import SimpleSeries, htf_dir
 from .publisher import Publisher
 from .ratelimit import WeightLimiter
 from .rest import Rest
 from .store import Store
-from .trades import Trade, apply_bar, open_trade
+from .trades import Trade
 from .universe import filter_universe
 
 log = logging.getLogger("tbot")
@@ -68,7 +69,7 @@ class Bot:
         self.store = Store(os.path.join(self.S.data_dir, "bot.sqlite"))
         self.lim = WeightLimiter(self.S.weight_budget_per_min, state_file=os.path.join(self.S.data_dir, "rest_ban.json"))
         self.keys: dict = {}
-        self.weekly: dict = {}
+        self.htf_hist: dict = {}  # sym -> CloseEmaSeries of the 4h closes (HTF bias for every TF)
         self.universe: list = []  # [(sym, qvol)]
         self.qvol: dict = {}
         self.symbols: set = set()
@@ -115,27 +116,19 @@ class Bot:
         for s in removed:
             for tf in self.S.timeframes:
                 self.keys.pop((s, tf), None)
-            self.weekly.pop(s, None)
+            self.htf_hist.pop(s, None)
         for s in sorted(added):
+            hist = self.htf_hist[s] = CloseEmaSeries(self.P.htf_ema)
             for tf in self.S.timeframes:
-                ks = self.keys[(s, tf)] = KeyState(s, tf, PairStrategy(self.P, s, tf))
+                ks = self.keys[(s, tf)] = KeyState(s, tf, PairStrategy(self.P, s, tf, hist if tf == HTF_TF else None))
                 ks.db_trade = self.open.get((s, tf))
         if not first:
             self._sync_streams()
             await self._warm_symbols(sorted(added))
 
     # ---------------- history / backfill ----------------
-    async def _fetch_weekly(self, sym):
-        bars = await self.rest.klines(sym, "1w", limit=99)
-        ser = SimpleSeries(self.P.htf_ema)
-        nm = now_ms()
-        for b in bars:
-            if b[6] < nm:
-                ser.add(b[0], b[4])
-        self.weekly[sym] = ser
-
     async def _warm_symbols(self, syms):
-        """Replay stored candles, then REST-backfill. HTF first so lower TFs see their HTF bias."""
+        """Replay stored candles, then REST-backfill. The 4h HTF first so every other TF sees its HTF bias."""
         conc = max(1, self.S.backfill_concurrency)  # small parallelism; the weight limiter still caps REST/min
 
         async def pool(items, fn):
@@ -147,8 +140,8 @@ class Bot:
                     await asyncio.sleep(0)
             await asyncio.gather(*[worker() for _ in range(conc)])
 
-        await pool([s for s in syms if s not in self.weekly], self._fetch_weekly)
-        for tf in sorted(self.S.timeframes, key=lambda x: -TF_MS[x]):  # HTF first
+        order = sorted(self.S.timeframes, key=lambda x: (x != HTF_TF, -TF_MS[x]))  # 4h, 1d, 1h, 15m, 5m
+        for tf in order:
             await pool([self.keys[(s, tf)] for s in syms if (s, tf) in self.keys], self._warm_key)
 
     async def _warm_key(self, ks: KeyState):
@@ -185,7 +178,7 @@ class Bot:
             if not closed:
                 return
             for b in closed:
-                self._process(ks, b, live=ks.warm)
+                self._process(ks, b, live=True)  # only the last ~2 bars can publish (recency rule in _process)
             fresh = False
             if len(bars) < 99:
                 return
@@ -231,17 +224,11 @@ class Bot:
             return
         self._process(ks, bar, live=True)
 
-    def _htf_series(self, sym, tf):
-        h = HTF_MAP[tf]
-        if h == "1w":
-            return self.weekly.get(sym), TF_MS["1w"]
-        k = self.keys.get((sym, h))
-        return (k.engine if k else None), TF_MS[h]
-
     def _process(self, ks: KeyState, bar, live: bool, store: bool = True):
-        """One CLOSED bar through the Pine-ordered strategy. Signals open PUBLIC virtual trades only for live, recent
-        bars; during warm-up replay the same logic runs with shadow trades so setup/position/cooldown state matches
-        the Pine strategy, but nothing is published."""
+        """One CLOSED bar through the Pine-ordered strategy. A signal opens a PUBLIC virtual trade only if the bar came
+        from the live feed or a REST fill (live=True), closed within the last 2 bars, and no restored open trade of
+        this pair is still waiting to be re-attached. Otherwise (stored-candle replay, older history) the same logic
+        runs with a shadow trade so setup / position / cooldown state matches the Pine strategy, unpublished."""
         if ks.last_t is not None and bar[0] <= ks.last_t:
             return
         key = (ks.sym, ks.tf)
@@ -249,10 +236,11 @@ class Bot:
         if ks.db_trade is not None and bar[0] > ks.db_trade.entry_t:
             st.trade, st.trade_public = ks.db_trade, True  # restored open trade takes over from the shadow state
             ks.db_trade = None
-        series, hms = self._htf_series(ks.sym, ks.tf)
-        hd = htf_dir(series, hms, bar[0], TF_MS[ks.tf], bar[4], getattr(series, "ema_alpha", None)) if self.P.use_htf else 0
+        tf_ms = TF_MS[ks.tf]
+        hd = htf_dir(self.htf_hist.get(ks.sym), TF_MS[HTF_TF], bar[0], tf_ms, bar[4]) if self.P.use_htf else 0
         was_public = st.trade_public
-        publish = live and ks.warm and bar[0] + 2 * TF_MS[ks.tf] >= now_ms()
+        publish = (live and ks.db_trade is None and bar[0] + 2 * tf_ms >= now_ms()
+                   and not any(r["t"] == bar[0] and r["symbol"] == ks.sym and r["tf"] == ks.tf for r in self.signals_log[:50]))
         sig, opened, closed = st.on_bar(bar, hd, publish=publish)
         ks.last_t = bar[0]
         if store:
@@ -282,17 +270,6 @@ class Bot:
                 log.info("SIGNAL %s %s %s entry=%s q=%s", sig["symbol"], sig["tf"], sig["side"], sig["entry"], sig.get("quality"))
             else:
                 self.counters["signals_skipped"] += 1
-        if ks.tf == "1d" and live:
-            self._maybe_refresh_weekly(ks.sym)
-
-    def _maybe_refresh_weekly(self, sym):
-        ser = self.weekly.get(sym)
-        wk = TF_MS["1w"]
-        # Binance weeks open Monday 00:00 UTC; epoch day 0 is Thursday -> offset 4 days
-        off = 4 * 86_400_000
-        cur_open = ((now_ms() - off) // wk) * wk + off
-        if ser is None or not ser.t or ser.t[-1] < cur_open - wk:
-            asyncio.get_event_loop().create_task(self._fetch_weekly(sym))
 
     # ---------------- websockets ----------------
     def all_streams(self):

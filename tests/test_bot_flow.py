@@ -7,7 +7,7 @@ from tbot.strategy import PairStrategy
 
 
 def make_bot(tmp_path):
-    s = Settings(data_dir=str(tmp_path / "d"), site_dir=str(tmp_path / "site"), push_enabled=False)
+    s = Settings(data_dir=str(tmp_path / "d"), push_enabled=False)
     b = Bot(s)
     b.bf_queue = asyncio.Queue()
     return b

@@ -1,4 +1,3 @@
-from dataclasses import replace
 
 import pytest
 
@@ -25,11 +24,22 @@ def test_short_mirror_and_invalid_risk():
     assert open_trade(sig("LONG", entry=100, sl=100), P) is None
 
 
-def test_same_bar_stop_first():
+def test_same_bar_tradingview_path():
+    """Both levels inside one bar: TradingView path, open nearer the low -> O-L-H-C (stop first) ..."""
     tr = open_trade(sig(sl=97.0), P)  # tp 104.5
     closed = apply_bar(tr, (1, 100, 105, 96, 101, 1), 2.0, P)
     assert closed and tr.exit_reason == "sl" and tr.exit_price == 97.0
     assert tr.r == pytest.approx(pnl(tr, 97.0, P)[0]) and tr.r < -1
+    # ... open nearer the high -> O-H-L-C (TP first)
+    tr = open_trade(sig(sl=97.0), P)
+    assert apply_bar(tr, (1, 101, 105, 96, 101, 1), 2.0, P)
+    assert tr.exit_reason == "tp" and tr.exit_price == 104.5
+
+
+def test_gap_beyond_tp_fills_at_open():
+    tr = open_trade(sig(sl=97.0), P)  # tp 104.5
+    assert apply_bar(tr, (1, 106, 107, 96, 100, 1), 2.0, P)
+    assert tr.exit_reason == "tp" and tr.exit_price == 106
 
 
 def test_take_profit_and_commission():
@@ -64,7 +74,10 @@ def test_gap_fill_at_open_and_no_reprocessing():
     assert not apply_bar(tr2, (0, 100, 200, 0, 100, 1), 2.0, P)  # bar not after entry: ignored
 
 
-def test_short_same_bar_and_be():
+def test_short_same_bar_path():
     tr = open_trade(sig("SHORT", entry=100, sl=103, atr=2), P)  # risk 3, tp 95.5
-    assert apply_bar(tr, (1, 100, 103.5, 95, 99, 1), 2.0, P)
+    assert apply_bar(tr, (1, 100, 103.5, 95, 99, 1), 2.0, P)  # open nearer the high -> stop (above) first
     assert tr.exit_reason == "sl" and tr.exit_price == 103
+    tr = open_trade(sig("SHORT", entry=100, sl=103, atr=2), P)
+    assert apply_bar(tr, (1, 99, 103.5, 95, 99, 1), 2.0, P)  # open nearer the low -> TP (below) first
+    assert tr.exit_reason == "tp" and tr.exit_price == 95.5

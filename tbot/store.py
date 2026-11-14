@@ -1,4 +1,6 @@
-"""SQLite persistence: closed candles (rolling) and virtual trades/signals."""
+"""SQLite persistence (data/bot.sqlite, WAL): closed candles (rolling, last keep_bars per pair; candle writes are batched
+and flushed every 10 s), virtual trades (status open / closed / void) and a small key-value table (universe,
+signals_log)."""
 from __future__ import annotations
 
 import json
@@ -30,9 +32,6 @@ class Store:
     def add_candle(self, sym, tf, bar):
         self.pending.append((sym, tf) + tuple(bar[:6]))
 
-    def add_candles(self, sym, tf, bars):
-        self.pending.extend((sym, tf) + tuple(b[:6]) for b in bars)
-
     def flush(self):
         if self.pending:
             self.db.executemany("INSERT OR REPLACE INTO candles VALUES(?,?,?,?,?,?,?,?)", self.pending)
@@ -43,9 +42,6 @@ class Store:
         rows = self.db.execute("SELECT t,o,h,l,c,v FROM candles WHERE sym=? AND tf=? ORDER BY t DESC LIMIT ?",
                                (sym, tf, limit)).fetchall()
         return [tuple(r) for r in reversed(rows)]
-
-    def last_candle_times(self):
-        return {(s, tf): t for s, tf, t in self.db.execute("SELECT sym, tf, MAX(t) FROM candles GROUP BY sym, tf")}
 
     def prune(self, keep=600):
         self.flush()

@@ -1,4 +1,6 @@
-"""Writes the website JSON (data/bot.json) and requests coalesced Vercel deploys through the existing deploy script."""
+"""Builds the dashboard JSON (schema tbot-1), writes data/bot.json + data/status.json every 60 s, and pushes bot.json
+to the GitHub `data` branch (at most every 2 min when the trading content changed, otherwise a 10-min heartbeat).
+The dashboard reads it from raw.githubusercontent.com, so data changes never need a site redeploy."""
 from __future__ import annotations
 
 import datetime as dt
@@ -109,7 +111,7 @@ class Publisher:
                     r[k] = rnd(r[k])
             r["adx"] = rnd(r.get("adx"), 3)
             tr = b.open.get((s["symbol"], s["tf"]))
-            r["state"] = "open" if tr is not None and tr.id == s.get("trade_id") else ("skipped" if s.get("skipped") else "closed")
+            r["state"] = "open" if tr is not None and tr.id == s.get("trade_id") else "closed"
             signals.append(r)
         now = time.time()
         status = dict(

@@ -1,9 +1,9 @@
 """Straightforward, independent reference simulation of script_v4_official.pine (strategy, Active preset) on full
 arrays, written line-by-line from the Pine source (series[k] indexing, bar_index, strategy broker emulation with
 process_orders_on_close, pyramiding=0). Used only by the parity test. Broker emulation: stop/limit orders placed at a
-bar close are checked from the next bar on its open/high/low; stop fills at stop or the worse open on a gap, limit at
-limit or the better open; if both are touched in one bar the STOP is assumed first (conservative; TradingView's
-emulator would order by the bar's OHLC path)."""
+bar close are checked from the next bar: the open tick first (an order whose level the open already passed fills at
+the open), then TradingView's documented intrabar path (open closer to the high -> O-H-L-C, otherwise O-L-H-C); stop
+fills at the stop, limit at the limit."""
 import math
 
 NA = float("nan")
@@ -92,17 +92,25 @@ def simulate(bars, P, htf=None):
         exited = False
         if pos is not None and i > pos["entry_i"]:
             if pos["side"] == "LONG":
-                if low[i] <= pos["stop"]:
-                    px = min(o[i], pos["stop"])
-                elif high[i] >= pos["tp"]:
-                    px = max(o[i], pos["tp"])
+                if o[i] <= pos["stop"] or o[i] >= pos["tp"]:  # open already beyond a level: fills at the open
+                    px = o[i]
+                elif low[i] <= pos["stop"] or high[i] >= pos["tp"]:
+                    hi_first = (high[i] - o[i]) < (o[i] - low[i])  # TV path: O-H-L-C if open nearer the high
+                    if high[i] >= pos["tp"] and (hi_first or low[i] > pos["stop"]):
+                        px = pos["tp"]
+                    else:
+                        px = pos["stop"]
                 else:
                     px = None
             else:
-                if high[i] >= pos["stop"]:
-                    px = max(o[i], pos["stop"])
-                elif low[i] <= pos["tp"]:
-                    px = min(o[i], pos["tp"])
+                if o[i] >= pos["stop"] or o[i] <= pos["tp"]:
+                    px = o[i]
+                elif high[i] >= pos["stop"] or low[i] <= pos["tp"]:
+                    hi_first = (high[i] - o[i]) < (o[i] - low[i])
+                    if low[i] <= pos["tp"] and (not hi_first or high[i] < pos["stop"]):
+                        px = pos["tp"]
+                    else:
+                        px = pos["stop"]
                 else:
                     px = None
             if px is not None:
@@ -111,13 +119,14 @@ def simulate(bars, P, htf=None):
                 pos = None
                 exited = True
         a = atr[i]
-        # ---- pivots (ta.pivothigh/low: strict on both sides)
+        # ---- pivots: TradingView ta.pivothigh/low = candidate is the LAST index of the window max/min
         ph = pl = NA
         if i - R - L >= 0:
             c_ = i - R
-            if all(high[c_] > high[k] for k in range(c_ - L, c_ + R + 1) if k != c_):
+            win_h, win_l = high[c_ - L:i + 1], low[c_ - L:i + 1]
+            if len(win_h) - 1 - win_h[::-1].index(max(win_h)) == L:
                 ph = high[c_]
-            if all(low[c_] < low[k] for k in range(c_ - L, c_ + R + 1) if k != c_):
+            if len(win_l) - 1 - win_l[::-1].index(min(win_l)) == L:
                 pl = low[c_]
         validH = validL = False
         hIdx = lIdx = None
@@ -178,7 +187,7 @@ def simulate(bars, P, htf=None):
                                         bull.update(armed=False, broken=False)
                                     elif not bull["broken"] and S(close, i, k2) > bull["level"] + P.break_buf * a and volok_at(k2):
                                         bull.update(broken=True, bidx=i - k2)
-                    break
+                        break  # Pine: inside the retrace/height block (line 278 / 330)
             lowIdx.append(lIdx); lowPx.append(pl); lowTop.append(lTop)
             if len(lowIdx) > 20:
                 lowIdx.pop(0); lowPx.pop(0); lowTop.pop(0)
@@ -207,7 +216,7 @@ def simulate(bars, P, htf=None):
                                         bear.update(armed=False, broken=False)
                                     elif not bear["broken"] and S(close, i, k2) < bear["level"] - P.break_buf * a and volok_at(k2):
                                         bear.update(broken=True, bidx=i - k2)
-                    break
+                        break
             highIdx.append(hIdx); highPx.append(ph); highBot.append(hBot)
             if len(highIdx) > 20:
                 highIdx.pop(0); highPx.pop(0); highBot.pop(0)

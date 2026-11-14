@@ -5,9 +5,9 @@ import os
 from dataclasses import dataclass, field, replace
 
 TIMEFRAMES = ["5m", "15m", "1h", "4h", "1d"]
-TF_MS = {"5m": 300_000, "15m": 900_000, "1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000, "1w": 604_800_000}
-# Higher-timeframe bias mapping (chart TF -> HTF)
-HTF_MAP = {"5m": "1h", "15m": "4h", "1h": "4h", "4h": "1d", "1d": "1w"}
+TF_MS = {"5m": 300_000, "15m": 900_000, "1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000}
+# Higher-timeframe bias: Pine default htfTf = "240" (4h) for EVERY chart timeframe (see htf.py).
+HTF_TF = "4h"
 
 
 @dataclass(frozen=True)
@@ -88,7 +88,6 @@ class Settings:
     backfill_concurrency: int = int(os.environ.get("TBOT_BACKFILL_CONC", "4"))
     universe_refresh_s: int = 3600
     data_dir: str = os.environ.get("TBOT_DATA", "/workspace/together_trading_bot/data")
-    site_dir: str = os.environ.get("TBOT_SITE", "/workspace/ultimate/frontend")
     # Live data goes to the GitHub `data` branch; the dashboard reads it client-side (no site redeploys).
     repo_url: str = os.environ.get("TBOT_REPO", "https://github.com/lechinh911/together-trading-bot.git")
     data_branch: str = os.environ.get("TBOT_DATA_BRANCH", "data")
