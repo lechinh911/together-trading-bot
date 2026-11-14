@@ -85,6 +85,7 @@ class Settings:
     weight_budget_per_min: int = int(os.environ.get("TBOT_WEIGHT_BUDGET", "600"))
     history_limit: int = int(os.environ.get("TBOT_HISTORY", "499"))  # klines limit<500 -> weight 2
     keep_bars: int = 600
+    backfill_concurrency: int = int(os.environ.get("TBOT_BACKFILL_CONC", "4"))
     universe_refresh_s: int = 3600
     data_dir: str = os.environ.get("TBOT_DATA", "/workspace/together_trading_bot/data")
     site_dir: str = os.environ.get("TBOT_SITE", "/workspace/ultimate/frontend")

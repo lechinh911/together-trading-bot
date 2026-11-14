@@ -130,16 +130,20 @@ class Bot:
 
     async def _warm_symbols(self, syms):
         """Replay stored candles, then REST-backfill. HTF first so lower TFs see their HTF bias."""
-        for sym in syms:
-            if sym not in self.weekly:
-                await self._fetch_weekly(sym)
-        for tf in sorted(self.S.timeframes, key=lambda x: -TF_MS[x]):
-            for sym in syms:
-                ks = self.keys.get((sym, tf))
-                if ks is None:
-                    continue
-                await self._warm_key(ks)
-                await asyncio.sleep(0)
+        conc = max(1, self.S.backfill_concurrency)  # small parallelism; the weight limiter still caps REST/min
+
+        async def pool(items, fn):
+            it = iter(items)
+
+            async def worker():
+                for x in it:
+                    await fn(x)
+                    await asyncio.sleep(0)
+            await asyncio.gather(*[worker() for _ in range(conc)])
+
+        await pool([s for s in syms if s not in self.weekly], self._fetch_weekly)
+        for tf in sorted(self.S.timeframes, key=lambda x: -TF_MS[x]):  # HTF first
+            await pool([self.keys[(s, tf)] for s in syms if (s, tf) in self.keys], self._warm_key)
 
     async def _warm_key(self, ks: KeyState):
         tf_ms = TF_MS[ks.tf]
