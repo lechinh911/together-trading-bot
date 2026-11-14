@@ -181,7 +181,7 @@ class Bot:
             if not closed:
                 return
             for b in closed:
-                self._process(ks, b, live=True)  # only the last ~2 bars can publish (recency rule in _process)
+                self._process(ks, b, live=True)  # only a bar closed <= min(1 bar, 15 min) ago can publish (recency rule in _process)
             fresh = False
             if len(bars) < 99:
                 return
@@ -229,7 +229,7 @@ class Bot:
 
     def _process(self, ks: KeyState, bar, live: bool, store: bool = True):
         """One CLOSED bar through the Pine-ordered strategy. A signal opens a PUBLIC virtual trade only if the bar came
-        from the live feed or a REST fill (live=True), closed within the last 2 bars, and no restored open trade of
+        from the live feed or a REST fill (live=True), closed at most min(1 bar, 15 min) ago, and no restored open trade of
         this pair is still waiting to be re-attached. Otherwise (stored-candle replay, older history) the same logic
         runs with a shadow trade so setup / position / cooldown state matches the Pine strategy, unpublished."""
         if ks.last_t is not None and bar[0] <= ks.last_t:
@@ -242,7 +242,7 @@ class Bot:
         tf_ms = TF_MS[ks.tf]
         hd = htf_dir(self.htf_hist.get(ks.sym), TF_MS[HTF_TF], bar[0], tf_ms, bar[4]) if self.P.use_htf else 0
         was_public = st.trade_public
-        publish = (live and ks.db_trade is None and bar[0] + 2 * tf_ms >= now_ms()
+        publish = (live and ks.db_trade is None and now_ms() - (bar[0] + tf_ms) <= min(tf_ms, 900_000)
                    and not any(r["t"] == bar[0] and r["symbol"] == ks.sym and r["tf"] == ks.tf for r in self.signals_log[:50]))
         sig, opened, closed = st.on_bar(bar, hd, publish=publish)
         ks.last_t = bar[0]

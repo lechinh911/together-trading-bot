@@ -65,7 +65,7 @@ Binance REST (ít)         Binance WebSocket (realtime)
 
 ### 1.5 Lệnh công khai và lệnh "bóng"
 - Mọi nến (kể cả lịch sử) đều đi qua đúng logic Pine để trạng thái setup / vị thế / cooldown khớp Pine.
-- Tín hiệu chỉ mở **lệnh công khai** khi nến đến từ WS hoặc REST bù (`live=True`), đã đóng trong vòng 2 nến gần nhất,
+- Tín hiệu chỉ mở **lệnh công khai** khi nến đến từ WS hoặc REST bù (`live=True`), đóng cách đây không quá min(1 nến, 15 phút) (tránh báo muộn với giá cũ, ví dụ nến 4h đã đóng hàng giờ),
   chưa có tín hiệu trùng (cùng mã/khung/nến) trong `signals_log`, và không có lệnh mở đã lưu đang chờ gắn lại.
   Ngược lại là **lệnh bóng** (giữ cho đúng trạng thái Pine, không công bố).
 - Lệnh mở đã lưu trong SQLite được gắn lại khi phát lại tới nến sau nến vào lệnh; các nến sau đó được áp dụng tiếp
