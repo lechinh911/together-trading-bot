@@ -316,9 +316,9 @@ class Bot:
     def _send(self, c: Conn, method, params):
         if c.ws is None or c.ws.closed:
             return  # applied on reconnect via URL
-        for i in range(0, len(params), 100):
+        for i in range(0, len(params), 50):  # Binance silently drops large SUBSCRIBE messages
             c.msg_id += 1
-            asyncio.get_event_loop().create_task(c.ws.send_str(json.dumps({"method": method, "params": params[i:i + 100], "id": c.msg_id})))
+            asyncio.get_event_loop().create_task(c.ws.send_str(json.dumps({"method": method, "params": params[i:i + 50], "id": c.msg_id})))
 
     async def conn_loop(self, c: Conn, delay=0.0):
         await asyncio.sleep(delay)
@@ -366,6 +366,21 @@ class Bot:
             if ks.last_t is not None and ks.last_t < (nm // tf_ms) * tf_ms - tf_ms:
                 self.schedule_backfill(ks)
 
+    def _resync_silent(self):
+        """Pairs whose last closed bar is >1 bar behind (silent stream, dropped close) get a small REST gap-fill."""
+        nm = now_ms()
+        n = 0
+        for ks in self.keys.values():
+            if not ks.warm or ks.busy or ks.last_t is None:
+                continue
+            tf_ms = TF_MS[ks.tf]
+            expect = (nm // tf_ms) * tf_ms - tf_ms
+            if ks.last_t < expect - tf_ms and nm - expect > 30_000:
+                self.schedule_backfill(ks)
+                n += 1
+        if n:
+            log.info("resync: %d silent pairs scheduled for gap-fill", n)
+
     def _on_ws(self, raw):
         try:
             d = json.loads(raw)
@@ -391,7 +406,7 @@ class Bot:
 
     # ---------------- periodic ----------------
     async def periodic(self):
-        last_flush = last_pub = last_uni = last_prune = time.time()
+        last_flush = last_pub = last_uni = last_prune = last_resync = time.time()
         while True:
             await asyncio.sleep(5)
             t = time.time()
@@ -405,6 +420,9 @@ class Bot:
                 if t - last_uni >= self.S.universe_refresh_s:
                     last_uni = t
                     await self.refresh_universe()
+                if t - last_resync >= 600 and self.startup.get("warm_done_at"):
+                    last_resync = t
+                    self._resync_silent()
                 if t - last_prune >= 3600:
                     last_prune = t
                     self.store.prune(self.S.keep_bars)
