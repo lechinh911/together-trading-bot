@@ -60,7 +60,7 @@ Binance REST (ít)         Binance WebSocket (realtime)
 3. Mỗi cặp: phát lại tối đa 600 nến đã lưu (nếu nến cuối cũ hơn 400 nến thì tải mới), rồi REST bù tới nến đã đóng gần
    nhất, rồi xả bộ đệm WS.
 4. Nến cách quãng (thiếu nến) khi đang chạy → đệm lại + xếp hàng bù REST. **Mỗi 60 s** (`catchup_every_s`) quét: cặp nào
-   chưa có nến vừa đóng sau 30 s → bù REST chỉ phần nến thiếu (`startTime = nến cuối + 1`), 2 luồng, đi qua bộ giới
+   chưa có nến vừa đóng sau 30 s → bù REST chỉ phần nến thiếu (`startTime = nến cuối + 1`), 6 luồng, đi qua bộ giới
    hạn 600 weight/phút (không bắn dồn).
 
 ### 1.5 Lệnh công khai và lệnh "bóng"

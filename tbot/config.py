@@ -86,6 +86,7 @@ class Settings:
     ws_base: str = os.environ.get("TBOT_WS", "wss://fstream.binance.com/market/stream")
     ws_ping_s: float = 20.0  # aiohttp heartbeat ping (closes the socket if the pong is missing)
     ws_silence_s: int = 30  # no message for this long on a connection -> reconnect it
+    backfill_workers: int = 6  # parallel gap-fill requests (a 475-pair catch-up takes ~1 min, weight ~1 each)
     catchup_every_s: int = 60  # REST catch-up of pairs whose closed bar is missing > 30 s after the close
     streams_per_conn: int = int(os.environ.get("TBOT_STREAMS_PER_CONN", "200"))
     weight_budget_per_min: int = int(os.environ.get("TBOT_WEIGHT_BUDGET", "600"))

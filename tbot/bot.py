@@ -479,7 +479,7 @@ class Bot:
             except (NotImplementedError, RuntimeError):
                 pass
             pub = asyncio.get_event_loop().create_task(self.periodic())
-            for _ in range(2):
+            for _ in range(self.S.backfill_workers):  # concurrency only; REST weight is paced by the limiter
                 asyncio.get_event_loop().create_task(self.backfill_worker())
             t0 = time.time()
             await self._warm_symbols(sorted(self.symbols))
