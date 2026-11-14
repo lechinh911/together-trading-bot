@@ -1,7 +1,7 @@
 # Together Trading Bot — Bot tín hiệu Binance USDT-M Futures
 
 Bot quét **tín hiệu** theo chiến lược **2 Đáy/2 Đỉnh (cụm nến) → Gãy neckline → EMA20/50 + Momentum (v4, preset Active)**
-trên các khung **5m, 15m, 1h, 4h, 1d**, theo dõi **lệnh ảo** và xuất dữ liệu cho website Market Lens
+trên các khung **5m, 15m, 1h, 4h, 1d**, theo dõi **lệnh ảo** và xuất dữ liệu cho website Together We Thrive
 (https://togetherwethrive.vercel.app).
 
 > ⚠️ **Chỉ là tín hiệu, lệnh ảo, chưa kiểm chứng hiệu quả.** Bot **không đặt lệnh thật**, không dùng API key Binance.
