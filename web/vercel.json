@@ -1,0 +1,1 @@
+{"headers": [{"source": "/data/(.*)", "headers": [{"key": "Cache-Control", "value": "no-cache, max-age=0"}]}, {"source": "/(|index.html|app.js|app.css)", "headers": [{"key": "Cache-Control", "value": "no-cache, max-age=0, must-revalidate"}]}]}

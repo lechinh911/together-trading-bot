@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="Bot tín hiệu Binance USDT-M Futures: 2 Đáy/2 Đỉnh → Gãy → EMA20/50 + Momentum. Chỉ là tín hiệu, lệnh ảo.">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=tbot1">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="shortcut icon" href="/favicon.ico">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<meta name="theme-color" content="#0b0e14">
+<title>Market Lens — Bot tín hiệu Binance Futures</title>
+<link rel="stylesheet" href="app.css?v=tbot-1">
+</head>
+<body>
+<a class="skip" href="#main">Đến nội dung</a>
+<header class="top">
+  <div class="wrap top-inner">
+    <a class="brand" href="#" aria-label="Market Lens — Bot tín hiệu">
+      <img src="/favicon.svg" width="36" height="36" alt="">
+      <span class="brand-text"><b>Market Lens</b><small>Bot tín hiệu Binance Futures</small></span>
+    </a>
+    <div class="top-meta">
+      <span class="pill" id="live-pill"><i></i><span id="live-text">Đang tải…</span></span>
+      <span class="clock" id="clock">UTC+7</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="notice" role="note">
+    <strong>Chỉ là tín hiệu, lệnh ảo, chưa kiểm chứng hiệu quả.</strong>
+    <span>Bot không đặt lệnh thật. Chiến lược 2 Đáy/2 Đỉnh (cụm nến) → Gãy → EMA20/50 + Momentum, preset Active, trên nến đã đóng. Không phải khuyến nghị đầu tư.</span>
+  </div>
+
+  <section class="kpis" id="kpis" aria-label="Tổng quan"></section>
+
+  <section class="tfcards" id="tfcards" aria-label="Theo khung thời gian"></section>
+
+  <nav class="tabs" role="tablist" aria-label="Mục">
+    <button role="tab" data-tab="signals" aria-selected="true">Tín hiệu mới <em id="n-signals"></em></button>
+    <button role="tab" data-tab="open" aria-selected="false">Lệnh đang mở <em id="n-open"></em></button>
+    <button role="tab" data-tab="closed" aria-selected="false">Lệnh đã đóng <em id="n-closed"></em></button>
+    <button role="tab" data-tab="stats" aria-selected="false">Thống kê</button>
+    <button role="tab" data-tab="status" aria-selected="false">Trạng thái bot</button>
+  </nav>
+
+  <div class="filters" id="filters">
+    <div class="chips" id="tf-chips" role="group" aria-label="Khung thời gian"></div>
+    <div class="chips" id="side-chips" role="group" aria-label="Chiều"></div>
+    <label class="search"><span class="sr">Tìm mã</span><input id="q" type="search" placeholder="Tìm mã, ví dụ BTC" autocomplete="off" spellcheck="false"></label>
+  </div>
+
+  <main id="main">
+    <section id="panel-signals" class="panel"></section>
+    <section id="panel-open" class="panel" hidden></section>
+    <section id="panel-closed" class="panel" hidden></section>
+    <section id="panel-stats" class="panel" hidden></section>
+    <section id="panel-status" class="panel" hidden></section>
+  </main>
+</div>
+
+<footer class="wrap foot">
+  <span><b>MARKET LENS</b> · Dữ liệu Binance USDT-M Futures (WebSocket nến đóng) · Giờ Việt Nam UTC+7</span>
+  <span>Tín hiệu kỹ thuật tự động, lệnh ảo để theo dõi — chưa kiểm chứng hiệu quả, không phải lời khuyên đầu tư.</span>
+</footer>
+<script src="app.js?v=tbot-1" defer></script>
+</body>
+</html>
