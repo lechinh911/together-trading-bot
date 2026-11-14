@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import random
+import signal
 import time
 from dataclasses import dataclass, field
 from typing import Optional
@@ -59,6 +60,7 @@ class Conn:
         self.connected_at = 0.0
         self.task = None
         self.msg_id = 0
+        self.force = False  # set by force_reconnect: skip the back-off
 
 
 class Bot:
@@ -79,7 +81,8 @@ class Bot:
         self.recent_closed: list = []
         self.signals_log: list = self.store.kv_get("signals_log", [])
         self.started = time.time()
-        self.counters = dict(ws_msgs=0, closed_bars=0, live_bars=0, gaps=0, backfills=0, signals=0, signals_skipped=0)
+        self.counters = dict(ws_msgs=0, closed_bars=0, live_bars=0, gaps=0, backfills=0, signals=0, signals_skipped=0,
+                             ws_silence=0, resumes=0, catchups=0)
         self.startup = dict(rest_calls=None, rest_weight=None, warm_done_at=None)
         self.universe_at = 0.0
         self.dirty_event = False
@@ -313,22 +316,38 @@ class Bot:
                 return
             url = self.S.ws_base + "?streams=" + "/".join(sorted(c.streams))
             try:
-                async with self.session.ws_connect(url, heartbeat=None, autoping=True, max_msg_size=0,
-                                                   timeout=aiohttp.ClientWSTimeout(ws_close=10)) as ws:
+                # heartbeat: client ping every 20 s, the socket is closed if no pong arrives (dead TCP after a network
+                # drop / VM pause is noticed even before the silence timeout below). Borrowed from opencode stream.py.
+                async with self.session.ws_connect(url, heartbeat=self.S.ws_ping_s, autoping=True, max_msg_size=0,
+                                                   timeout=aiohttp.ClientWSTimeout(ws_close=3)) as ws:
                     c.ws, c.connected, c.connected_at = ws, True, time.time()
                     log.info("ws#%d connected (%d streams)%s", c.cid, len(c.streams), "" if first else " [reconnect]")
                     if not first:
                         self._after_reconnect(c)
                     first = False
                     backoff = 1.0
+                    last_data = time.time()
                     while True:
-                        msg = await ws.receive(timeout=90)
+                        try:
+                            # kline streams tick several times per second: no DATA for ws_silence_s = dead / stuck
+                            # stream. Hard deadline from the last data frame (wait_for, as in opencode): pongs are
+                            # consumed inside receive() and would restart its own timeout forever.
+                            left = last_data + self.S.ws_silence_s - time.time()
+                            if left <= 0:
+                                raise asyncio.TimeoutError
+                            msg = await asyncio.wait_for(ws.receive(), left)
+                        except asyncio.TimeoutError:
+                            self.counters["ws_silence"] += 1
+                            log.warning("ws#%d silent for %ds -> reconnect", c.cid, self.S.ws_silence_s)
+                            break
                         if msg.type == aiohttp.WSMsgType.TEXT:
+                            last_data = time.time()
                             c.msgs += 1
                             c.last_msg = time.time()
                             self.counters["ws_msgs"] += 1
                             self._on_ws(msg.data)
                         elif msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR, aiohttp.WSMsgType.CLOSING):
+                            log.warning("ws#%d closed by peer (%s)", c.cid, msg.type.name)
                             break
             except asyncio.CancelledError:
                 raise
@@ -336,8 +355,22 @@ class Bot:
                 log.warning("ws#%d error: %r", c.cid, e)
             c.connected, c.ws = False, None
             c.reconnects += 1
+            if c.force:  # deliberate reconnect (resume / ops signal): reconnect right away
+                c.force, backoff = False, 1.0
+                await asyncio.sleep(random.random())
+                continue
             await asyncio.sleep(backoff + random.random())
             backoff = min(backoff * 2, 60)
+
+    def force_reconnect(self, reason: str, cids=None):
+        """Close the given (default: all) sockets; conn_loop reconnects within ~1 s and _after_reconnect gap-fills."""
+        n = 0
+        for c in self.conns:
+            if (cids is None or c.cid in cids) and c.ws is not None and not c.ws.closed:
+                c.force = True
+                asyncio.get_event_loop().create_task(c.ws.close())
+                n += 1
+        log.warning("force reconnect of %d ws (%s)", n, reason)
 
     def _after_reconnect(self, c: Conn):
         nm = now_ms()
@@ -350,20 +383,24 @@ class Bot:
             if ks.last_t is not None and ks.last_t < (nm // tf_ms) * tf_ms - tf_ms:
                 self.schedule_backfill(ks)
 
-    def _resync_silent(self):
-        """Pairs whose last closed bar is >1 bar behind (silent stream, dropped close) get a small REST gap-fill."""
+    def _resync_silent(self, grace_ms: int = 30_000):
+        """Catch-up (idea from opencode stream.py _catchup_once): every pair whose last fully closed bar is missing
+        `grace_ms` after it closed gets a REST gap-fill of only the missing bars (start_time = last_t + 1 bar), paced
+        by the shared weight limiter. Returns the number of pairs scheduled."""
         nm = now_ms()
         n = 0
         for ks in self.keys.values():
             if not ks.warm or ks.busy or ks.last_t is None:
                 continue
             tf_ms = TF_MS[ks.tf]
-            expect = (nm // tf_ms) * tf_ms - tf_ms
-            if ks.last_t < expect - tf_ms and nm - expect > 30_000:
+            expect = (nm // tf_ms) * tf_ms - tf_ms  # open time of the last bar that has closed
+            if ks.last_t < expect and nm - (expect + tf_ms) > grace_ms:
                 self.schedule_backfill(ks)
                 n += 1
         if n:
-            log.info("resync: %d silent pairs scheduled for gap-fill", n)
+            self.counters["catchups"] += n
+            log.info("catch-up: %d pairs missing closed bars scheduled for gap-fill", n)
+        return n
 
     def _on_ws(self, raw):
         try:
@@ -391,20 +428,30 @@ class Bot:
     # ---------------- periodic ----------------
     async def periodic(self):
         last_flush = last_pub = last_uni = last_prune = last_resync = time.time()
+        tick = time.time()
         while True:
             await asyncio.sleep(5)
             t = time.time()
+            gap, tick = t - tick, t
             try:
+                if gap > 20 and self.startup.get("warm_done_at"):
+                    # the event loop / box was frozen (VM pause, suspend): sockets are dead, bars are missing
+                    self.counters["resumes"] += 1
+                    log.warning("resume after %.0fs freeze: reconnect all ws + catch-up", gap)
+                    self.force_reconnect("resume")
+                    self._resync_silent(grace_ms=0)
+                    last_resync = t
                 if t - last_flush >= 10:
                     self.store.flush()
                     last_flush = t
-                if t - last_pub >= self.S.publish_every_s or self.dirty_event:
+                pend = self.publisher.pending_at
+                if t - last_pub >= self.S.publish_every_s or self.dirty_event or (pend and t >= pend):
                     await self.publisher.publish()
                     last_pub = t
                 if t - last_uni >= self.S.universe_refresh_s:
                     last_uni = t
                     await self.refresh_universe()
-                if t - last_resync >= 600 and self.startup.get("warm_done_at"):
+                if t - last_resync >= self.S.catchup_every_s and self.startup.get("warm_done_at"):
                     last_resync = t
                     self._resync_silent()
                 if t - last_prune >= 3600:
@@ -424,6 +471,10 @@ class Bot:
                 await asyncio.sleep(60)
                 await self.refresh_universe(first=True)
             self._sync_streams()  # connect first: live closes are buffered during warmup
+            try:  # ops: `kill -USR1 <pid>` forces a reconnect of every socket (used to test recovery)
+                asyncio.get_event_loop().add_signal_handler(signal.SIGUSR1, lambda: self.force_reconnect("SIGUSR1"))
+            except (NotImplementedError, RuntimeError):
+                pass
             pub = asyncio.get_event_loop().create_task(self.periodic())
             for _ in range(2):
                 asyncio.get_event_loop().create_task(self.backfill_worker())

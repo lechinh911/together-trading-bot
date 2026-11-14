@@ -324,8 +324,9 @@ function chips() {
 function live(d) {
   const p = $('#live-pill'), t = $('#live-text');
   const age = Date.now() / 1000 - d.generated, s = d.status;
-  p.className = 'pill ' + (s.connected < s.connections ? 'warn' : age < 1500 ? 'ok' : 'warn');
-  t.textContent = (age < 1500 ? 'Đang chạy · ' : 'Dữ liệu cũ · ') + 'cập nhật ' + s7(d.generated_t7).slice(6);
+  // bot pushes on every new signal/close (<= 2 min) and a 10-min heartbeat; > 18 min old = bot or box stalled
+  p.className = 'pill ' + (s.connected < s.connections ? 'warn' : age < 1080 ? 'ok' : 'warn');
+  t.textContent = (age < 1080 ? 'Đang chạy · ' : 'Dữ liệu cũ · ') + 'cập nhật ' + s7(d.generated_t7).slice(6) + ' (' + ago(d.generated * 1000) + ')';
   t.title = 'Dữ liệu xuất lúc ' + d.generated_t7 + ' (UTC+7)';
 }
 
@@ -342,6 +343,7 @@ function render() {
 function clock() {
   const d = new Date(Date.now() + 7 * 3600e3), p = n => String(n).padStart(2, '0');
   $('#clock').textContent = `${p(d.getUTCHours())}:${p(d.getUTCMinutes())} UTC+7`;
+  if (S.data) live(S.data);
 }
 
 async function load() {

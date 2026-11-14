@@ -51,6 +51,7 @@ class Publisher:
     def __init__(self, bot):
         self.bot = bot
         self.last_push = 0.0
+        self.pending_at = 0.0  # time a throttled content change is due to be pushed
         self.last_sig = None
         self.pushing = False
         self.pusher = None
@@ -152,6 +153,7 @@ class Publisher:
     async def publish(self):
         b = self.bot
         b.dirty_event = False
+        self.pending_at = 0.0
         data = self.build()
         data["status"]["github"] = dict(pushes=self.pusher.pushes if self.pusher else 0,
                                         last_push_t7=t7(self.pusher.last_push_t, ms=False) if self.pusher and self.pusher.last_push_t else None,
@@ -162,6 +164,8 @@ class Publisher:
         t = time.time()
         sig = self.content_sig(data)
         changed = sig != self.last_sig
+        if changed and t - self.last_push < b.S.push_every_s:
+            self.pending_at = self.last_push + b.S.push_every_s  # throttled: periodic() publishes again right then
         if (changed and t - self.last_push >= b.S.push_every_s) or t - self.last_push >= b.S.heartbeat_push_s:
             self.pushing = True
             try:

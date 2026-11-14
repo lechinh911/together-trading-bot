@@ -18,7 +18,7 @@ Binance REST (ít)         Binance WebSocket (realtime)
              SQLite data/bot.sqlite (nến, lệnh, signals_log)
                         │
          data/bot.json + data/status.json (mỗi 60 s)
-                        │  git push nhánh `data` (≤ 2 phút/lần khi nội dung đổi, 10 phút heartbeat)
+                        │  git push nhánh `data` (nội dung đổi → đẩy trong ≤ 2 phút, không đổi → 10 phút heartbeat)
                         ▼
    raw.githubusercontent.com/lechinh911/together-trading-bot/data/bot.json
                         │  dashboard tự tải lại mỗi 60 s
@@ -36,7 +36,13 @@ Binance REST (ít)         Binance WebSocket (realtime)
 ### 1.2 WebSocket (`bot.conn_loop`, `_sync_streams`)
 - Mainnet `wss://fstream.binance.com/market/stream` (đường `/stream` cũ không còn đẩy kline; **không dùng testnet**
   `binancefuture.com`). Tối đa 200 luồng/kết nối (≈ 12 kết nối), SUBSCRIBE/UNSUBSCRIBE theo lô 50.
-- Tự trả lời ping, tự kết nối lại (backoff 1→60 s). Sau khi kết nối lại, cặp nào thiếu nến sẽ được bù bằng REST.
+- Luồng có trong URL (`?streams=...`) nên mỗi lần kết nối lại tự đăng ký đủ luồng. Tự trả lời ping của server.
+- Phát hiện kết nối chết (học từ opencode `stream.py`): bot ping 20 s/lần (`ws_ping_s`, mất pong → đóng), và
+  **30 s không có dữ liệu** trên một kết nối (`ws_silence_s`, hạn cứng tính từ tin dữ liệu cuối) → đóng và kết nối lại
+  kết nối đó. Lỗi thường: backoff 1→60 s; đóng chủ động: kết nối lại ngay (< 1 s).
+- Box/VM bị treo hoặc tạm dừng (vòng lặp chậm > 20 s): đóng và mở lại mọi kết nối + bù nến ngay (`resumes`).
+  `kill -USR1 <pid>` ép kết nối lại toàn bộ (dùng để kiểm tra).
+- Sau khi kết nối lại, cặp nào thiếu nến sẽ được bù bằng REST.
 - Tin kline chưa đóng (`x=false`) chỉ cập nhật giá hiển thị (`last_price`) — **không bao giờ** vào engine.
 
 ### 1.3 REST tối thiểu (`rest.py`, `ratelimit.py`)
@@ -51,7 +57,9 @@ Binance REST (ít)         Binance WebSocket (realtime)
 2. Nạp theo khung **4h trước** (vì 4h là HTF của mọi khung), rồi 1d, 1h, 15m, 5m; 4 luồng song song nhẹ.
 3. Mỗi cặp: phát lại tối đa 600 nến đã lưu (nếu nến cuối cũ hơn 400 nến thì tải mới), rồi REST bù tới nến đã đóng gần
    nhất, rồi xả bộ đệm WS.
-4. Nến cách quãng (thiếu nến) khi đang chạy → đệm lại + xếp hàng bù REST; mỗi 10 phút quét các cặp "im lặng" quá 1 nến.
+4. Nến cách quãng (thiếu nến) khi đang chạy → đệm lại + xếp hàng bù REST. **Mỗi 60 s** (`catchup_every_s`) quét: cặp nào
+   chưa có nến vừa đóng sau 30 s → bù REST chỉ phần nến thiếu (`startTime = nến cuối + 1`), 2 luồng, đi qua bộ giới
+   hạn 600 weight/phút (không bắn dồn).
 
 ### 1.5 Lệnh công khai và lệnh "bóng"
 - Mọi nến (kể cả lịch sử) đều đi qua đúng logic Pine để trạng thái setup / vị thế / cooldown khớp Pine.

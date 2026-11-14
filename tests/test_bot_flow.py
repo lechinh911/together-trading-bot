@@ -69,3 +69,19 @@ def test_forming_klines_never_processed(tmp_path):
         b._on_ws(_msg("BTCUSDT", "4h", bar, False))  # forming update
         b._on_ws(_msg("BTCUSDT", "4h", bar, True))   # close
     assert len(calls) == 400 and ks.last_t == bars[399][0]
+
+
+def test_catchup_schedules_only_pairs_missing_a_closed_bar(tmp_path, monkeypatch):
+    import tbot.bot as botmod
+    b = make_bot(tmp_path)
+    tf = 300_000
+    now = 1794680700000 + 60_000  # 60 s after a 5m close
+    monkeypatch.setattr(botmod, "now_ms", lambda: now)
+    last_closed = 1794680700000 - tf
+    ok = KeyState("AAAUSDT", "5m", PairStrategy(b.P, "AAAUSDT", "5m"), busy=False, warm=True, last_t=last_closed)
+    late = KeyState("BBBUSDT", "5m", PairStrategy(b.P, "BBBUSDT", "5m"), busy=False, warm=True, last_t=last_closed - tf)
+    b.keys = {("AAAUSDT", "5m"): ok, ("BBBUSDT", "5m"): late}
+    assert b._resync_silent() == 1 and late.busy and not ok.busy and b.bf_queue.qsize() == 1
+    monkeypatch.setattr(botmod, "now_ms", lambda: 1794680700000 + 10_000)  # within the 30 s grace: nothing yet
+    late.busy, b.bf_inflight = False, set()
+    assert b._resync_silent() == 0

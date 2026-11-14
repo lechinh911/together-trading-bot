@@ -81,6 +81,9 @@ class Settings:
     rest_base: str = os.environ.get("TBOT_REST", "https://fapi.binance.com")
     # Binance moved USDT-M market streams (klines) to the /market path; legacy /stream no longer pushes klines.
     ws_base: str = os.environ.get("TBOT_WS", "wss://fstream.binance.com/market/stream")
+    ws_ping_s: float = 20.0  # aiohttp heartbeat ping (closes the socket if the pong is missing)
+    ws_silence_s: int = 30  # no message for this long on a connection -> reconnect it
+    catchup_every_s: int = 60  # REST catch-up of pairs whose closed bar is missing > 30 s after the close
     streams_per_conn: int = int(os.environ.get("TBOT_STREAMS_PER_CONN", "200"))
     weight_budget_per_min: int = int(os.environ.get("TBOT_WEIGHT_BUDGET", "600"))
     history_limit: int = int(os.environ.get("TBOT_HISTORY", "499"))  # klines limit<500 -> weight 2
