@@ -79,13 +79,19 @@ def test_universe_filter():
 
 
 def test_htf_uses_last_closed_bar_only():
+    """Pine lookahead_off (confirmed bars): the HTF bar whose close <= the chart bar close."""
     s = SimpleSeries(ema_len=2)
-    H = 3_600_000
+    H, M = 3_600_000, 300_000
     for i, c in enumerate([10, 10, 12, 8]):
         s.add(i * H, c)
-    # chart bar opening at 3h: last closed HTF bar is the one opened at 2h (close 12 > ema)
-    assert htf_dir(s, H, 3 * H) == 1
-    # chart bar opening at 3h30 still cannot see the 3h bar (closes at 4h)
-    assert htf_dir(s, H, 3 * H + H // 2) == 1
-    assert htf_dir(s, H, 4 * H) == -1
-    assert htf_dir(s, H, 0) == 0
+    # 5m chart bar 3h00-3h05: last HTF bar closed by 3h05 is the 2h bar (close 12 > ema 11.33)
+    assert htf_dir(s, H, 3 * H, M) == 1
+    # chart bar 3h55-4h00 closes together with the 3h HTF bar (close 8 < ema) -> sees it
+    assert htf_dir(s, H, 4 * H - M, M) == -1
+    assert htf_dir(s, H, 0, M) == 0
+    # HTF bar not received yet at the shared close instant: completed from the chart close + one EMA step
+    s2 = SimpleSeries(ema_len=2)
+    for i, c in enumerate([10, 10, 12]):
+        s2.add(i * H, c)
+    assert htf_dir(s2, H, 4 * H - M, M, chart_close=8.0, alpha=s2.ema_alpha) == -1
+    assert htf_dir(s2, H, 4 * H - M, M, chart_close=20.0, alpha=s2.ema_alpha) == 1

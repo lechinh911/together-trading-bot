@@ -24,13 +24,14 @@ def clamp(x, lo, hi):
 
 def quality(p1: float, p2: float, height: float, gap_bars: int, atr: float, min_bars: int, max_gap: int) -> float:
     """V4 f_quality: 0.4*symmetry + 0.3*spacing + 0.3*heightScore."""
-    if not finite(atr) or atr <= 0:
+    if not finite(atr):
         return 0.0
-    symmetry = 1 - min(1.0, abs(p1 - p2) / atr)
+    a = atr + 1e-10  # atrSafe as in the Pine
+    symmetry = 1 - min(1.0, abs(p1 - p2) / a)
     span = max_gap - min_bars
     mid = min_bars + span / 2
-    spacing = clamp(1 - abs((gap_bars - mid) / (span / 2)), 0.0, 1.0) if span > 0 else 1.0
-    height_score = clamp(height / (2.5 * atr), 0.0, 1.0)
+    spacing = clamp(1 - abs((gap_bars - mid) / (span / 2 + 1e-10)), 0.0, 1.0)
+    height_score = clamp(height / (2.5 * a), 0.0, 1.0)
     return 0.4 * symmetry + 0.3 * spacing + 0.3 * height_score
 
 
@@ -82,6 +83,10 @@ class Engine:
     @property
     def last_time(self):
         return self.t[-1] if self.t else None
+
+    @property
+    def ema_alpha(self):
+        return self._ema_s.alpha
 
     def htf_point(self):
         """(open_time, close, emaSlow) of the last processed bar (used when this engine is someone's HTF)."""
@@ -362,13 +367,19 @@ class Engine:
                      and (not P.use_rsi or (finite(rsi) and rsi >= P.rsi_short_min))
                      and cross_ok(self.last_dn_idx, s.break_idx))
         out = None
+        # Pine: entry only if risk > 0; the setup is reset only when the entry is actually placed.
         if long_sig:
-            out = self._make_signal("LONG", b, i, c, a, score_up, adx, ef, es)
-            b.disarm()
-        if short_sig:
-            sig = self._make_signal("SHORT", s, i, c, a, score_dn, adx, ef, es)
-            s.disarm()
-            out = out or sig  # both on one bar is practically impossible (EMA alignment differs)
+            stop = max(b.sl, c - P.stop_cap_atr * a) if P.stop_cap_atr > 0 else b.sl
+            if c - stop > 0:
+                out = self._make_signal("LONG", b, i, c, a, score_up, adx, ef, es)
+                out["stop"] = stop
+                b.disarm()
+        if short_sig and out is None:
+            stop = min(s.sl, c + P.stop_cap_atr * a) if P.stop_cap_atr > 0 else s.sl
+            if stop - c > 0:
+                out = self._make_signal("SHORT", s, i, c, a, score_dn, adx, ef, es)
+                out["stop"] = stop
+                s.disarm()
         return out
 
     def _make_signal(self, side, s: Setup, i, c, a, score, adx, ef, es):

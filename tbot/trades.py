@@ -54,11 +54,11 @@ def open_trade(sig: dict, p: Params) -> Optional[Trade]:
     if not (finite(entry) and finite(a) and finite(raw)):
         return None
     if sig["side"] == "LONG":
-        stop = max(raw, entry - p.stop_cap_atr * a)
+        stop = max(raw, entry - p.stop_cap_atr * a) if p.stop_cap_atr > 0 else raw
         risk = entry - stop
         tp = entry + p.tp_r * risk
     else:
-        stop = min(raw, entry + p.stop_cap_atr * a)
+        stop = min(raw, entry + p.stop_cap_atr * a) if p.stop_cap_atr > 0 else raw
         risk = stop - entry
         tp = entry - p.tp_r * risk
     if not risk > 0:
@@ -76,8 +76,9 @@ def pnl(tr: Trade, exit_price: float, p: Params):
     return r, pct
 
 
-def apply_bar(tr: Trade, bar, atr_now: float, p: Params) -> bool:
-    """Apply one CLOSED bar after entry. Returns True if the trade closed on this bar."""
+def apply_bar(tr: Trade, bar, atr_now: float, p: Params, do_manage: bool = True) -> bool:
+    """Apply one CLOSED bar after entry: exit check, then (if still open and manage=True) BE/trail at the close.
+    Returns True if the trade closed on this bar."""
     t, o, h, l, c, _v = bar
     if tr.status != "open" or (tr.last_t is not None and t <= tr.last_t):
         return False
@@ -104,8 +105,17 @@ def apply_bar(tr: Trade, bar, atr_now: float, p: Params) -> bool:
         tr.status, tr.exit_t, tr.exit_price, tr.exit_reason = "closed", t, exit_px, reason
         tr.r, tr.pct = pnl(tr, exit_px, p)
         return True
-    # management for the next bar
-    if long:
+    if do_manage:
+        manage(tr, bar, atr_now, p)
+    return False
+
+
+def manage(tr: Trade, bar, atr_now: float, p: Params):
+    """Pine BE / trail block at the bar close (new stop applies from the next bar). TP limit stays fixed."""
+    t, o, h, l, c, _v = bar
+    if tr.status != "open":
+        return
+    if tr.side == "LONG":
         if not tr.be and h >= tr.entry + p.be_at_r * tr.risk:
             tr.be = True
             tr.stop = max(tr.stop, tr.entry)
@@ -121,7 +131,6 @@ def apply_bar(tr: Trade, bar, atr_now: float, p: Params) -> bool:
             cand = c + p.trail_atr * atr_now
             tr.trail = cand if tr.trail is None else min(tr.trail, cand)
             tr.stop = min(tr.stop, tr.trail)
-    return False
 
 
 def open_r(tr: Trade, price: float, p: Params) -> float:

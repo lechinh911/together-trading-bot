@@ -19,7 +19,19 @@ trên các khung **5m, 15m, 1h, 4h, 1d**, theo dõi **lệnh ảo** và xuất d
 - **Chỉ xử lý nến đã đóng** (`k.x = true`) → không repaint. Nến và lệnh ảo lưu trong SQLite (`data/bot.sqlite`),
   khởi động lại chỉ cần bù phần nến còn thiếu.
 
-## Logic tín hiệu (bám sát Pine script)
+## Logic tín hiệu (đồng bộ với Pine v4 chính thức)
+Nguồn chuẩn: Pine `2 Day/2 Dinh v4 -> Break -> EMA Momentum` (strategy, preset Active). Thứ tự xử lý mỗi nến ĐÃ ĐÓNG
+giống Pine: (1) lệnh dừng/chốt lời đặt từ nến trước được kiểm tra trên nến này; (2) chỉ báo → pivot → mô hình → gãy/hủy
+→ tín hiệu (`coolOk = bar_index − lastExitBar ≥ cooldown`, chỉ vào lệnh khi không có vị thế, setup chỉ bị xóa khi lệnh
+thực sự được vào và risk > 0) → dời hòa vốn/trailing tại giá đóng (áp dụng từ nến sau); (3) nến có lệnh đóng →
+`lastExitBar`. Không bao giờ dùng nến đang hình thành. Khi khởi động, bot chạy lại lịch sử với lệnh "bóng" (không công
+bố) để trạng thái setup/vị thế/cooldown khớp Pine.
+
+Khác biệt có chủ đích: khung HTF theo từng khung (5m→1h, 15m→4h, 1h→4h, 4h→1D, 1D→1W) thay vì mặc định `240` của Pine;
+HTF lấy nến HTF đã đóng có giờ đóng ≤ giờ đóng nến hiện tại (như `lookahead_off` trên nến lịch sử). Nếu SL và TP cùng
+chạm trong một nến, bot giả định SL trước (TradingView mô phỏng theo đường đi OHLC nên có thể khác). Kiểm thử
+`tests/test_pine_parity.py` so khớp tín hiệu/lệnh/giá thoát với một mô phỏng tham chiếu độc lập viết theo từng dòng Pine
+trên dữ liệu Binance thật (chưa đối chiếu được với TradingView thật).
 - Pivot 5/5, ATR14 (RMA). Cụm đỉnh/đáy: ≥ 3 nến trong 0,5×ATR, hoặc spike nhô ≥ 1×ATR.
 - 2 đáy: đáy 2 không thủng đáy 1 quá 0,75×ATR, cách 5–100 nến, hồi ≥ 55%, chiều cao ≥ 1,6×ATR; neckline = đỉnh cao
   nhất giữa 2 đáy; SL mô hình = đáy thấp hơn. 2 đỉnh đối xứng. Quét lại (k2) các nến chờ xác nhận pivot.
@@ -27,7 +39,7 @@ trên các khung **5m, 15m, 1h, 4h, 1d**, theo dõi **lệnh ảo** và xuất d
 - **Gãy**: nến đóng vượt neckline ≥ 0,15×ATR với khối lượng ≥ 1,15×SMA20.
 - **Tín hiệu**: EMA20/EMA50 đúng chiều, khoảng cách ≥ 0,30×ATR (bắt buộc), điểm momentum ≥ 2/3, ADX14 ≥ 20,
   xu hướng khung lớn (giá đóng nến đã đóng gần nhất so với EMA50: 5m→1h, 15m→4h, 1h→4h, 4h→1D, 1D→1W),
-  nghỉ 5 nến sau khi đóng lệnh, mỗi mã + khung tối đa 1 lệnh.
+  nghỉ 5 nến sau khi đóng lệnh (≥ 5 nến tính từ nến đóng lệnh), mỗi mã + khung tối đa 1 lệnh.
 - **Lệnh ảo**: vào tại giá đóng nến tín hiệu; SL = đáy/đỉnh mô hình, tối đa 3×ATR; TP = 1,5R; chạm +1R → dời SL về
   hòa vốn và trailing `close − 1,3×ATR`. Nếu SL và TP cùng chạm trong 1 nến → giả định SL trước. Phí 0,04%/chiều.
 

@@ -3,7 +3,7 @@ import asyncio
 from conftest import load_fixture
 from tbot.bot import Bot, KeyState
 from tbot.config import Settings
-from tbot.engine import Engine
+from tbot.strategy import PairStrategy
 
 
 def make_bot(tmp_path):
@@ -16,7 +16,7 @@ def make_bot(tmp_path):
 def test_gap_buffers_and_schedules_backfill(tmp_path):
     b = make_bot(tmp_path)
     bars = load_fixture("ETHUSDT_1h.json")
-    ks = KeyState("ETHUSDT", "1h", Engine(b.P, "ETHUSDT", "1h"), busy=False, warm=True)
+    ks = KeyState("ETHUSDT", "1h", PairStrategy(b.P, "ETHUSDT", "1h"), busy=False, warm=True)
     b.keys[("ETHUSDT", "1h")] = ks
     for bar in bars[:300]:
         b.on_closed_bar(ks, bar)
@@ -34,7 +34,7 @@ def test_gap_buffers_and_schedules_backfill(tmp_path):
 def test_old_bars_never_open_trades_and_publish(tmp_path):
     b = make_bot(tmp_path)
     bars = load_fixture("BTCUSDT_4h.json")
-    ks = KeyState("BTCUSDT", "4h", Engine(b.P, "BTCUSDT", "4h"), busy=False, warm=True)
+    ks = KeyState("BTCUSDT", "4h", PairStrategy(b.P, "BTCUSDT", "4h"), busy=False, warm=True)
     b.keys[("BTCUSDT", "4h")] = ks
     for bar in bars:
         b._process(ks, bar, live=True)
@@ -56,7 +56,7 @@ def test_forming_klines_never_processed(tmp_path):
     """Only x=true (closed) klines reach the engine / trades; forming updates only refresh the display price."""
     b = make_bot(tmp_path)
     bars = load_fixture("BTCUSDT_4h.json")
-    ks = KeyState("BTCUSDT", "4h", Engine(b.P, "BTCUSDT", "4h"), busy=False, warm=True)
+    ks = KeyState("BTCUSDT", "4h", PairStrategy(b.P, "BTCUSDT", "4h"), busy=False, warm=True)
     b.keys[("BTCUSDT", "4h")] = ks
     calls = []
     orig = ks.engine.process_bar

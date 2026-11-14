@@ -76,7 +76,7 @@ def test_quality_formula():
     # perfect symmetry, mid spacing, tall pattern -> 1.0
     assert quality(100, 100, 2.5, 52.5, 1.0, 5, 100) == pytest.approx(1.0)
     # asymmetric by 1 ATR, spacing at the edge, height 0 -> 0
-    assert quality(100, 101, 0.0, 5, 1.0, 5, 100) == pytest.approx(0.0)
+    assert quality(100, 101, 0.0, 5, 1.0, 5, 100) == pytest.approx(0.0, abs=1e-9)
     q = quality(100, 100.5, 1.25, 28.75, 1.0, 5, 100)
     assert q == pytest.approx(0.4 * 0.5 + 0.3 * 0.5 + 0.3 * 0.5)
 

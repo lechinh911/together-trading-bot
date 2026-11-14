@@ -15,6 +15,7 @@ import aiohttp
 
 from .config import HTF_MAP, TF_MS, Settings
 from .engine import Engine
+from .strategy import PairStrategy
 from .htf import SimpleSeries, htf_dir
 from .publisher import Publisher
 from .ratelimit import WeightLimiter
@@ -34,12 +35,16 @@ def now_ms() -> int:
 class KeyState:
     sym: str
     tf: str
-    engine: Engine
+    strat: PairStrategy
     last_t: Optional[int] = None
     warm: bool = False
     busy: bool = True  # backfilling: live bars are buffered
     buffer: list = field(default_factory=list)
-    last_exit_idx: Optional[int] = None
+    db_trade: Optional[Trade] = None  # open public trade restored from SQLite, attached when replay reaches it
+
+    @property
+    def engine(self) -> Engine:
+        return self.strat.engine
 
 
 class Conn:
@@ -113,7 +118,8 @@ class Bot:
             self.weekly.pop(s, None)
         for s in sorted(added):
             for tf in self.S.timeframes:
-                self.keys[(s, tf)] = KeyState(s, tf, Engine(self.P, s, tf))
+                ks = self.keys[(s, tf)] = KeyState(s, tf, PairStrategy(self.P, s, tf))
+                ks.db_trade = self.open.get((s, tf))
         if not first:
             self._sync_streams()
             await self._warm_symbols(sorted(added))
@@ -233,44 +239,41 @@ class Bot:
         return (k.engine if k else None), TF_MS[h]
 
     def _process(self, ks: KeyState, bar, live: bool, store: bool = True):
+        """One CLOSED bar through the Pine-ordered strategy. Signals open PUBLIC virtual trades only for live, recent
+        bars; during warm-up replay the same logic runs with shadow trades so setup/position/cooldown state matches
+        the Pine strategy, but nothing is published."""
         if ks.last_t is not None and bar[0] <= ks.last_t:
             return
-        eng = ks.engine
         key = (ks.sym, ks.tf)
-        tr = self.open.get(key)
-        if tr is not None and bar[0] > (tr.last_t or 0):
-            atr_now = eng.peek_atr(bar)
-            if apply_bar(tr, bar, atr_now, self.P):
-                self.open.pop(key, None)
-                ks.last_exit_idx = eng.n
-                self.store.save_trade(tr)
-                self.recent_closed.insert(0, tr)
-                self.dirty_event = True
-                log.info("CLOSE %s %s %s %s R=%.2f", tr.symbol, tr.tf, tr.side, tr.exit_reason, tr.r)
-            else:
-                self.store.save_trade(tr) if live else None
-        cool_ok = ks.last_exit_idx is None or eng.n - ks.last_exit_idx > self.P.cooldown
-        flat = key not in self.open
+        st = ks.strat
+        if ks.db_trade is not None and bar[0] > ks.db_trade.entry_t:
+            st.trade, st.trade_public = ks.db_trade, True  # restored open trade takes over from the shadow state
+            ks.db_trade = None
         series, hms = self._htf_series(ks.sym, ks.tf)
-        hd = htf_dir(series, hms, bar[0]) if self.P.use_htf else 0
-        sig = eng.process_bar(bar, hd, cool_ok, flat)
+        hd = htf_dir(series, hms, bar[0], TF_MS[ks.tf], bar[4], getattr(series, "ema_alpha", None)) if self.P.use_htf else 0
+        was_public = st.trade_public
+        publish = live and ks.warm and bar[0] + 2 * TF_MS[ks.tf] >= now_ms()
+        sig, opened, closed = st.on_bar(bar, hd, publish=publish)
         ks.last_t = bar[0]
         if store:
             self.store.add_candle(ks.sym, ks.tf, bar)
         self.counters["closed_bars"] += 1
-        if sig:
-            recent = bar[0] + 2 * TF_MS[ks.tf] >= now_ms()
-            if live and ks.warm and recent:
-                trd = open_trade(sig, self.P)
+        if closed is not None and was_public:
+            self.open.pop(key, None)
+            self.store.save_trade(closed)
+            self.recent_closed.insert(0, closed)
+            self.dirty_event = True
+            log.info("CLOSE %s %s %s %s R=%.2f", closed.symbol, closed.tf, closed.side, closed.exit_reason, closed.r)
+        elif st.trade is not None and st.trade_public and live and opened is None:
+            self.store.save_trade(st.trade)
+        if sig is not None:
+            if publish and opened is not None:
+                self.store.save_trade(opened)
+                self.open[key] = opened
                 rec = dict(symbol=sig["symbol"], tf=sig["tf"], side=sig["side"], t=sig["t"], entry=sig["entry"],
                            quality=sig.get("quality"), adx=sig.get("adx"), score=sig.get("score"), neck=sig.get("neck"),
-                           pattern_sl=sig.get("pattern_sl"), detected_at=now_ms())
-                if trd:
-                    self.store.save_trade(trd)
-                    self.open[key] = trd
-                    rec.update(trade_id=trd.id, stop=trd.stop, tp=trd.tp)
-                else:
-                    rec.update(skipped="risk<=0")
+                           pattern_sl=sig.get("pattern_sl"), detected_at=now_ms(), trade_id=opened.id,
+                           stop=opened.stop, tp=opened.tp)
                 self.signals_log.insert(0, rec)
                 del self.signals_log[300:]
                 self.store.kv_set("signals_log", self.signals_log)
