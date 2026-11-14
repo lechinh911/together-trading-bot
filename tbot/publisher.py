@@ -1,7 +1,6 @@
 """Writes the website JSON (data/bot.json) and requests coalesced Vercel deploys through the existing deploy script."""
 from __future__ import annotations
 
-import asyncio
 import datetime as dt
 import json
 import logging
@@ -49,9 +48,13 @@ def stats_for(trades):
 class Publisher:
     def __init__(self, bot):
         self.bot = bot
-        self.last_deploy_req = time.time()
-        self.last_tick = time.time()
-        self.deploy_line = None
+        self.last_push = 0.0
+        self.last_sig = None
+        self.pushing = False
+        self.pusher = None
+        if bot.S.push_enabled:
+            from .gitpush import DataPusher
+            self.pusher = DataPusher(bot.S.repo_url, os.path.join(bot.S.data_dir, "gitdata"), bot.S.data_branch)
 
     def trade_row(self, tr, live_price=None):
         S = self.bot.P
@@ -115,7 +118,7 @@ class Publisher:
             timeframes=tfs, streams=sum(len(c.streams) for c in b.conns), connections=len(b.conns),
             connected=sum(1 for c in b.conns if c.connected), conns=conns, keys=len(b.keys), keys_warm=warm,
             counters=dict(b.counters), rest=lim, startup=b.startup, preset=b.S.preset,
-            setups_waiting=n_armed, setups_broken=n_broken, deploy=self.deploy_line,
+            setups_waiting=n_armed, setups_broken=n_broken,
             params=dict(vars(b.P)) if hasattr(b.P, "__dict__") else {},
         )
         top = sorted(b.universe, key=lambda x: -x[1])[:10]
@@ -124,47 +127,49 @@ class Publisher:
                     closed=[self.trade_row(t) for t in closed[:300]], stats=stats, waiting=armed[:120],
                     top_volume=[dict(symbol=s, qvol=round(q)) for s, q in top])
 
-    def write(self, data):
-        d = os.path.join(self.bot.S.site_dir, "data")
-        os.makedirs(d, exist_ok=True)
-        p = os.path.join(d, "bot.json")
-        tmp = p + ".tmp"
-        with open(tmp, "w") as f:
-            json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
-        os.replace(tmp, p)
+    def write(self, data) -> bytes:
+        raw = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode()
+        for path in (os.path.join(self.bot.S.data_dir, "bot.json"),):
+            with open(path + ".tmp", "wb") as f:
+                f.write(raw)
+            os.replace(path + ".tmp", path)
         st = os.path.join(self.bot.S.data_dir, "status.json")
         with open(st + ".tmp", "w") as f:
             json.dump(data["status"], f, ensure_ascii=False, indent=1)
         os.replace(st + ".tmp", st)
+        return raw
 
-    async def _deploy(self, *args):
-        cmd = self.bot.S.deploy_cmd
-        if not cmd or not os.path.exists(cmd):
-            return
-        env = dict(os.environ, DEPLOY_CALLER="trading_bot")
-        try:
-            p = await asyncio.create_subprocess_exec(cmd, *args, env=env, stdout=asyncio.subprocess.PIPE,
-                                                     stderr=asyncio.subprocess.STDOUT)
-            out, _ = await asyncio.wait_for(p.communicate(), 400)
-            line = out.decode(errors="replace").strip().splitlines()[-1:] if out else []
-            if line:
-                self.deploy_line = line[0][:200]
-                log.info("%s", self.deploy_line)
-        except Exception as e:
-            log.warning("deploy call failed: %r", e)
+    @staticmethod
+    def content_sig(data) -> str:
+        """Hash of the trading content (signals, trades, stats, waiting setups) - excludes status/timestamps."""
+        import hashlib
+        core = {k: data.get(k) for k in ("signals", "closed", "stats", "waiting")}
+        core["open"] = [{k: v for k, v in r.items() if k not in ("last", "open_R")} for r in data.get("open", [])]
+        return hashlib.sha256(json.dumps(core, sort_keys=True, default=str).encode()).hexdigest()[:16]
 
     async def publish(self):
         b = self.bot
-        event = b.dirty_event
         b.dirty_event = False
-        self.write(self.build())
+        data = self.build()
+        data["status"]["github"] = dict(pushes=self.pusher.pushes if self.pusher else 0,
+                                        last_push_t7=t7(self.pusher.last_push_t, ms=False) if self.pusher and self.pusher.last_push_t else None,
+                                        last_error=self.pusher.last_error if self.pusher else None)
+        raw = self.write(data)
+        if not self.pusher or b.startup.get("warm_done_at") is None or self.pushing:
+            return  # never publish a half-warm dataset
         t = time.time()
-        warm_done = b.startup.get("warm_done_at") is not None
-        if not warm_done:
-            return  # never deploy a half-warm site
-        if event or t - self.last_deploy_req >= b.S.deploy_every_s:
-            self.last_deploy_req = t
-            asyncio.get_event_loop().create_task(self._deploy())
-        elif t - self.last_tick >= b.S.deploy_tick_s:
-            self.last_tick = t
-            asyncio.get_event_loop().create_task(self._deploy("--tick"))
+        sig = self.content_sig(data)
+        changed = sig != self.last_sig
+        if (changed and t - self.last_push >= b.S.push_every_s) or t - self.last_push >= b.S.heartbeat_push_s:
+            self.pushing = True
+            try:
+                n_sig, n_open = len(data["signals"]), len(data["open"])
+                msg = f"data {data['generated_t7']} UTC+7: {n_sig} tín hiệu, {n_open} lệnh mở, {len(data['closed'])} lệnh đóng"
+                ok = await self.pusher.push({"bot.json": raw}, msg)
+                self.last_push = t
+                if ok:
+                    self.last_sig = sig
+                    self.pusher.last_push_t = time.time()
+                    log.info("pushed data branch (%s)", "content changed" if changed else "heartbeat")
+            finally:
+                self.pushing = False

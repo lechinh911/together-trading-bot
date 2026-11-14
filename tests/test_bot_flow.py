@@ -7,7 +7,7 @@ from tbot.engine import Engine
 
 
 def make_bot(tmp_path):
-    s = Settings(data_dir=str(tmp_path / "d"), site_dir=str(tmp_path / "site"), deploy_cmd="")
+    s = Settings(data_dir=str(tmp_path / "d"), site_dir=str(tmp_path / "site"), push_enabled=False)
     b = Bot(s)
     b.bf_queue = asyncio.Queue()
     return b
@@ -42,4 +42,4 @@ def test_old_bars_never_open_trades_and_publish(tmp_path):
     data = b.publisher.build()
     assert data["status"]["keys"] == 1 and data["signals"] == [] and data["stats"]["ALL"]["n"] == 0
     b.publisher.write(data)
-    assert (tmp_path / "site" / "data" / "bot.json").exists()
+    assert (tmp_path / "d" / "bot.json").exists()

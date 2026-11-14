@@ -1,6 +1,8 @@
 'use strict';
 (() => {
 const TFS = ['5m', '15m', '1h', '4h', '1d'];
+// Live data: the bot pushes bot.json to the `data` branch on GitHub; the site never needs a redeploy for new data.
+const DATA_URLS = ['https://raw.githubusercontent.com/lechinh911/together-trading-bot/data/bot.json', 'data/bot.json'];
 const S = {data: null, tab: 'signals', tf: '', side: '', q: '', sort: {}, limit: {}};
 const $ = (s, r = document) => r.querySelector(s);
 const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
@@ -272,7 +274,9 @@ function pStatus(d) {
     cg.appendChild(k);
   });
   cb.appendChild(cg); p.appendChild(cb);
-  if (s.deploy) { const dd = el('p', 'mut', 'Xuất bản: ' + s.deploy); dd.style.fontSize = '12px'; p.appendChild(dd); }
+  const gh = s.github || {};
+  const dd = el('p', 'mut', `Dữ liệu được bot tự đẩy lên GitHub (nhánh data): ${gh.pushes || 0} lần từ khi khởi động` + (gh.last_push_t7 ? `, gần nhất ${s7(gh.last_push_t7)}` : '') + (gh.last_error ? ` · lỗi gần nhất: ${gh.last_error}` : '') + '. Trang tự tải lại mỗi 60 giây.');
+  dd.style.fontSize = '12px'; p.appendChild(dd);
 }
 
 function kpis(d) {
@@ -318,8 +322,8 @@ function chips() {
 function live(d) {
   const p = $('#live-pill'), t = $('#live-text');
   const age = Date.now() / 1000 - d.generated, s = d.status;
-  p.className = 'pill ' + (s.connected < s.connections ? 'warn' : age < 2700 ? 'ok' : 'warn');
-  t.textContent = (age < 2700 ? 'Đang chạy · ' : 'Dữ liệu cũ · ') + 'cập nhật ' + s7(d.generated_t7).slice(6);
+  p.className = 'pill ' + (s.connected < s.connections ? 'warn' : age < 1500 ? 'ok' : 'warn');
+  t.textContent = (age < 1500 ? 'Đang chạy · ' : 'Dữ liệu cũ · ') + 'cập nhật ' + s7(d.generated_t7).slice(6);
   t.title = 'Dữ liệu xuất lúc ' + d.generated_t7 + ' (UTC+7)';
 }
 
@@ -340,8 +344,11 @@ function clock() {
 
 async function load() {
   try {
-    const r = await fetch('data/bot.json?ts=' + Date.now(), {cache: 'no-store'});
-    if (!r.ok) throw new Error('HTTP ' + r.status);
+    let r = null;
+    for (const u of DATA_URLS) {
+      try { r = await fetch(u + '?t=' + Date.now(), {cache: 'no-store'}); if (r.ok) break; } catch (e) { r = null; }
+    }
+    if (!r || !r.ok) throw new Error(r ? 'HTTP ' + r.status : 'mạng');
     S.data = await r.json();
     const e = $('#err'); if (e) e.remove();
     render();

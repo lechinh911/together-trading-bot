@@ -42,9 +42,14 @@ Biến môi trường tùy chọn: `TBOT_MIN_QVOL`, `TBOT_WEIGHT_BUDGET`, `TBOT_
 `TBOT_PARAMS` (JSON ghi đè tham số, ví dụ `{"min_quality":0.5}`).
 
 ## Website
-`web/` là dashboard tĩnh (tiếng Việt, giờ UTC+7): Tín hiệu mới, Lệnh đang mở, Lệnh đã đóng, Thống kê, Trạng thái bot;
-lọc theo khung/chiều/mã, bảng sắp xếp được, tự chuyển thành thẻ trên điện thoại. Bot ghi `data/bot.json` và gọi script
-deploy có sẵn (gom deploy: cách nhau ≥ 15 phút, < 90 lần/ngày).
+`web/` là dashboard tĩnh (tiếng Việt, giờ UTC+7): Tín hiệu mới, Lệnh đang mở, Lệnh đã đóng, Thống kê (tỷ lệ thắng
+theo khung/chiều), Trạng thái bot; lọc theo khung/chiều/mã, bảng sắp xếp được, tự chuyển thành thẻ trên điện thoại.
+
+**Dữ liệu live qua GitHub, không tốn AI, không cần deploy lại web:** bot (Python thuần) tự commit `bot.json` lên nhánh
+`data` của repo này mỗi 2 phút khi tín hiệu/lệnh/thống kê thay đổi, và mỗi 10 phút để cập nhật trạng thái. Dashboard
+đọc trực tiếp `https://raw.githubusercontent.com/lechinh911/together-trading-bot/data/bot.json` và tự tải lại mỗi 60 giây.
+Token GitHub chỉ nằm trong biến môi trường `GITHUB_TOKEN_TOGETHER`, git đọc qua `scripts/git_askpass.sh`
+(không ghi vào file/log).
 
 ## Cấu trúc
 `tbot/engine.py` (phát hiện mô hình + tín hiệu), `tbot/trades.py` (lệnh ảo), `tbot/indicators.py` (EMA/RMA/ATR/DMI),

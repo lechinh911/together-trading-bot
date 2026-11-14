@@ -88,10 +88,13 @@ class Settings:
     universe_refresh_s: int = 3600
     data_dir: str = os.environ.get("TBOT_DATA", "/workspace/together_trading_bot/data")
     site_dir: str = os.environ.get("TBOT_SITE", "/workspace/ultimate/frontend")
-    deploy_cmd: str = os.environ.get("TBOT_DEPLOY", "/workspace/ultimate/scripts/deploy_vercel.sh")
-    publish_every_s: int = 60
-    deploy_every_s: int = int(os.environ.get("TBOT_DEPLOY_EVERY", "1800"))
-    deploy_tick_s: int = 120
+    # Live data goes to the GitHub `data` branch; the dashboard reads it client-side (no site redeploys).
+    repo_url: str = os.environ.get("TBOT_REPO", "https://github.com/lechinh911/together-trading-bot.git")
+    data_branch: str = os.environ.get("TBOT_DATA_BRANCH", "data")
+    push_enabled: bool = os.environ.get("TBOT_PUSH", "1") == "1"
+    publish_every_s: int = 60  # local JSON
+    push_every_s: int = int(os.environ.get("TBOT_PUSH_EVERY", "120"))  # push if the trading content changed
+    heartbeat_push_s: int = int(os.environ.get("TBOT_HEARTBEAT_PUSH", "600"))  # status-only refresh
 
     @property
     def params(self) -> Params:
