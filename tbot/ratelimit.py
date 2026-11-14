@@ -80,8 +80,13 @@ class WeightLimiter:
 
     async def acquire(self, weight: int):
         async with self.lock:
+            warned = False
             while True:
                 w = self.wait_time(weight)
+                if w > 30 and not warned:
+                    warned = True
+                    import logging
+                    logging.getLogger("tbot.rest").warning("REST paused %.0fs (budget/back-off/ban)", w)
                 if w <= 0:
                     self.record(weight)
                     return

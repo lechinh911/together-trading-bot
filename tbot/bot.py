@@ -88,9 +88,16 @@ class Bot:
         ei = await self.rest.exchange_info()
         tk = await self.rest.tickers_24h()
         if not ei or not tk:
-            log.warning("universe refresh failed; keeping %d symbols", len(self.symbols))
-            return
+            saved = self.store.kv_get("universe") if first else None
+            if saved:
+                log.warning("universe REST failed; using last saved universe (%d symbols)", len(saved))
+                ei = {"symbols": [{"symbol": x, "status": "TRADING", "contractType": "PERPETUAL", "quoteAsset": "USDT"} for x, _ in saved]}
+                tk = [{"symbol": x, "quoteVolume": q} for x, q in saved]
+            else:
+                log.warning("universe refresh failed; keeping %d symbols", len(self.symbols))
+                return
         uni = filter_universe(ei, tk, self.S.min_quote_volume)
+        self.store.kv_set("universe", uni)
         self.universe = uni
         self.qvol = {s: q for s, q in uni}
         new = {s for s, _ in uni} | {k[0] for k in self.open}  # keep streaming symbols with open virtual trades
