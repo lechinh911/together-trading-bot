@@ -353,7 +353,7 @@ async function load() {
     const e = $('#err'); if (e) e.remove();
     render();
   } catch (e) {
-    if (!$('#err')) { const x = el('div', 'err', 'Chưa tải được dữ liệu bot (' + e.message + '). Trang sẽ tự thử lại sau 60 giây.'); x.id = 'err'; $('#main').prepend(x); }
+    if (!$('#err')) { const x = el('div', 'err', 'Chưa có dữ liệu bot (' + e.message + '). Bot có thể đang khởi động và nạp lịch sử nến; trang tự thử lại mỗi 60 giây.'); x.id = 'err'; $('#main').prepend(x); }
     $('#live-pill').className = 'pill bad'; $('#live-text').textContent = 'Không tải được dữ liệu';
   }
 }
