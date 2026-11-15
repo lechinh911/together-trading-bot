@@ -7,13 +7,36 @@ import datetime as dt
 import json
 import logging
 import os
+import socket
 import time
+import uuid
 
 from .config import TF_MS
 from .trades import open_r
 
 log = logging.getLogger("tbot.pub")
 TZ7 = dt.timezone(dt.timedelta(hours=7))
+
+def publisher_identity(data_dir: str) -> tuple[str, str]:
+    """Stable (hostname, id) written into bot.json so two publishers can see each other."""
+    host = socket.gethostname()
+    path = os.path.join(data_dir, "publisher_id")
+    ident = ""
+    try:
+        if os.path.isfile(path):
+            ident = open(path, encoding="utf-8").read().strip()
+    except OSError:
+        ident = ""
+    if not ident:
+        ident = f"{host}-{uuid.uuid4().hex[:8]}"
+        try:
+            os.makedirs(data_dir, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(ident)
+        except OSError:
+            pass
+    return host, ident
+
 
 
 def t7(ms_or_s, ms=True, fmt="%Y-%m-%d %H:%M"):
@@ -125,7 +148,9 @@ class Publisher:
             params=dict(vars(b.P)) if hasattr(b.P, "__dict__") else {},
         )
         top = sorted(b.universe, key=lambda x: -x[1])[:10]
+        host, pub_id = publisher_identity(b.S.data_dir)
         return dict(schema="tbot-1", generated=now, generated_t7=t7(now, ms=False, fmt="%Y-%m-%d %H:%M:%S"),
+                    publisher_host=host, publisher_id=pub_id,
                     status=status, signals=signals, open=[self.trade_row(t, b.last_price.get(t.symbol)) for t in open_trades],
                     closed=[self.trade_row(t) for t in closed[:300]], stats=stats, waiting=armed[:120],
                     top_volume=[dict(symbol=s, qvol=round(q)) for s, q in top])

@@ -94,7 +94,8 @@ class Settings:
     keep_bars: int = 600
     backfill_concurrency: int = int(os.environ.get("TBOT_BACKFILL_CONC", "4"))
     universe_refresh_s: int = 3600
-    data_dir: str = os.environ.get("TBOT_DATA", "/workspace/together_trading_bot/data")
+    # Default: <repo>/data (works on the box and a Windows VPS). Override with TBOT_DATA.
+    data_dir: str = os.environ.get("TBOT_DATA", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data"))
     # Live data goes to the GitHub `data` branch; the dashboard reads it client-side (no site redeploys).
     repo_url: str = os.environ.get("TBOT_REPO", "https://github.com/lechinh911/together-trading-bot.git")
     data_branch: str = os.environ.get("TBOT_DATA_BRANCH", "data")
