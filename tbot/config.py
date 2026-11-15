@@ -101,7 +101,7 @@ class Settings:
     push_enabled: bool = os.environ.get("TBOT_PUSH", "1") == "1"
     publish_every_s: int = 60  # local JSON
     push_every_s: int = int(os.environ.get("TBOT_PUSH_EVERY", "120"))  # push if the trading content changed
-    heartbeat_push_s: int = int(os.environ.get("TBOT_HEARTBEAT_PUSH", "600"))  # status-only refresh
+    heartbeat_push_s: int = int(os.environ.get("TBOT_HEARTBEAT_PUSH", "300"))  # status-only refresh (generated_t7) at least every 5 min
 
     @property
     def params(self) -> Params:

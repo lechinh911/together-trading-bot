@@ -1,5 +1,5 @@
 """Builds the dashboard JSON (schema tbot-1), writes data/bot.json + data/status.json every 60 s, and pushes bot.json
-to the GitHub `data` branch (at most every 2 min when the trading content changed, otherwise a 10-min heartbeat).
+to the GitHub `data` branch (at most every 2 min when the trading content changed, otherwise a 5-min heartbeat).
 The dashboard reads it from raw.githubusercontent.com, so data changes never need a site redeploy."""
 from __future__ import annotations
 

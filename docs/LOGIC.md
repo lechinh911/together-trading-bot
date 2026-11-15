@@ -18,7 +18,7 @@ Binance REST (ít)         Binance WebSocket (realtime)
              SQLite data/bot.sqlite (nến, lệnh, signals_log)
                         │
          data/bot.json + data/status.json (mỗi 60 s)
-                        │  git push nhánh `data` (nội dung đổi → đẩy trong ≤ 2 phút, không đổi → 10 phút heartbeat)
+                        │  git push nhánh `data` (nội dung đổi → đẩy trong ≤ 2 phút, không đổi → 5 phút heartbeat)
                         ▼
    raw.githubusercontent.com/lechinh911/together-trading-bot/data/bot.json
                         │  dashboard tự tải lại mỗi 60 s

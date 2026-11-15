@@ -9,6 +9,7 @@ import pytest
 
 from tbot.bot import Bot, KeyState, backfill_priority, now_ms
 from tbot.config import Settings, TF_MS
+from tbot.publisher import Publisher
 from tbot.gitpush import DataPusher, kill_and_reap
 from tbot.rest import Rest
 from tbot.strategy import PairStrategy
@@ -198,3 +199,56 @@ def test_data_pusher_serializes_concurrent_pushes(tmp_path):
         assert a is False and b is False  # diffs reported no change
 
     asyncio.run(go())
+
+
+def test_heartbeat_default_is_5_minutes_and_change_push_stays_2():
+    s = Settings()
+    assert s.heartbeat_push_s == 300
+    assert s.push_every_s == 120
+
+
+def test_publisher_heartbeat_every_5_min_and_change_after_2_min(tmp_path):
+    """Unchanged content is still pushed at 5 min (generated_t7/status). Content changes still push at 2 min."""
+    b = Bot(Settings(data_dir=str(tmp_path / "d"), push_enabled=False, heartbeat_push_s=300, push_every_s=120))
+    b.startup["warm_done_at"] = time.time()
+
+    class FakePusher:
+        def __init__(self):
+            self.pushes = 0
+            self.last_error = None
+            self.last_push_t = None
+            self.kinds = []
+
+        async def push(self, files, msg):
+            self.pushes += 1
+            self.last_files = files
+            assert list(files) == ["bot.json"]  # data branch stays a single-file commit
+            return True
+
+    pub = b.publisher
+    pub.pusher = FakePusher()
+    sig = pub.content_sig(pub.build())
+    pub.last_sig = sig
+
+    async def run():
+        # 2 min later, same content: no push (heartbeat is 5 min)
+        pub.last_push = time.time() - 121
+        await pub.publish()
+        assert pub.pusher.pushes == 0
+        # 5 min later, same content: heartbeat
+        pub.last_push = time.time() - 301
+        pub.last_sig = sig
+        await pub.publish()
+        assert pub.pusher.pushes == 1
+        # 2 min later, content changed: push
+        pub.last_push = time.time() - 121
+        pub.last_sig = "stale-hash"
+        await pub.publish()
+        assert pub.pusher.pushes == 2
+        # 90 s later, content changed: still throttled (not yet 2 min)
+        pub.last_push = time.time() - 90
+        pub.last_sig = "stale-hash"
+        await pub.publish()
+        assert pub.pusher.pushes == 2
+
+    asyncio.run(run())
