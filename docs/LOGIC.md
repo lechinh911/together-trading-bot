@@ -44,7 +44,9 @@ Binance REST (ít)         Binance WebSocket (realtime)
   kết nối đó. Lỗi thường: backoff 1→60 s; đóng chủ động: kết nối lại ngay (< 1 s).
 - Box/VM bị treo hoặc tạm dừng (vòng lặp chậm > 20 s): đóng và mở lại mọi kết nối + bù nến ngay (`resumes`).
   `kill -USR1 <pid>` ép kết nối lại toàn bộ (dùng để kiểm tra).
-- Sau khi kết nối lại, cặp nào thiếu nến sẽ được bù bằng REST.
+- Sau khi kết nối lại, cặp nào thiếu nến sẽ được bù bằng REST. Hàng đợi bù **ưu tiên nến vừa đóng** còn trong cửa sổ
+  công khai (min(1 nến, 15 phút), hết hạn sớm hơn trước) trước khi bù khoảng trống cũ, để tín hiệu 5m không bị bỏ vì
+  chờ hàng trăm cặp khác. Rule recency và logic vào/thoát lệnh không đổi.
 - Tin kline chưa đóng (`x=false`) chỉ cập nhật giá hiển thị (`last_price`) — **không bao giờ** vào engine.
 
 ### 1.3 REST tối thiểu (`rest.py`, `ratelimit.py`)
@@ -59,9 +61,9 @@ Binance REST (ít)         Binance WebSocket (realtime)
 2. Nạp theo khung **4h trước** (vì 4h là HTF của mọi khung), rồi 1d, 1h, 15m, 5m; 4 luồng song song nhẹ.
 3. Mỗi cặp: phát lại tối đa 600 nến đã lưu (nếu nến cuối cũ hơn 400 nến thì tải mới), rồi REST bù tới nến đã đóng gần
    nhất, rồi xả bộ đệm WS.
-4. Nến cách quãng (thiếu nến) khi đang chạy → đệm lại + xếp hàng bù REST. **Mỗi 60 s** (`catchup_every_s`) quét: cặp nào
-   chưa có nến vừa đóng sau 30 s → bù REST chỉ phần nến thiếu (`startTime = nến cuối + 1`), 6 luồng, đi qua bộ giới
-   hạn 600 weight/phút (không bắn dồn).
+4. Nến cách quãng (thiếu nến) khi đang chạy → đệm lại + xếp hàng bù REST (nến vừa đóng còn hạn công khai đi trước).
+   **Mỗi 60 s** (`catchup_every_s`) quét: cặp nào chưa có nến vừa đóng sau 30 s → bù REST chỉ phần nến thiếu
+   (`startTime = nến cuối + 1`), 6 luồng, đi qua bộ giới hạn 600 weight/phút (không bắn dồn).
 
 ### 1.5 Lệnh công khai và lệnh "bóng"
 - Mọi nến (kể cả lịch sử) đều đi qua đúng logic Pine để trạng thái setup / vị thế / cooldown khớp Pine.
@@ -166,7 +168,8 @@ hiện sau khi tải lại; bot luôn theo bản đã tải lại.
 - `publisher.py`: mỗi 60 s ghi `data/bot.json` (schema `tbot-1`: status, signals, open, closed ≤ 300, stats theo khung
   và chiều, waiting = setup đã gãy đang chờ) và `data/status.json`. Đẩy lên nhánh `data` bằng git thường
   (`gitpush.py`), token đọc qua `scripts/git_askpass.sh` từ biến môi trường `GITHUB_TOKEN_TOGETHER`, không ghi ra
-  file/log. Chỉ đẩy sau khi nạp xong.
+  file/log. Chỉ đẩy sau khi nạp xong. Git timeout 120 s thì giết cả process group và thu hoạch; một lúc chỉ một
+  lần push (khóa); lỗi ghi `repr(e)` để log không rỗng.
 
 ## 4. Dashboard (`web/`)
 Trang tĩnh tiếng Việt, giờ UTC+7, đọc `bot.json` từ raw.githubusercontent mỗi 60 s (có cache-buster). Tab: Tín hiệu

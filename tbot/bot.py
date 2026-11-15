@@ -33,6 +33,23 @@ def now_ms() -> int:
     return int(time.time() * 1000)
 
 
+def backfill_priority(tf: str, at_ms: int) -> tuple:
+    """Sort key for the gap-fill queue (lower runs first).
+
+    Pairs whose *current* last-closed bar is still inside the publish recency
+    window (min(1 bar, 15 min)) are urgent: soonest-to-expire first, then
+    shorter TFs. Already-stale gaps run later so they do not delay a 5m close
+    that can still be published. This does not loosen the recency rule and
+    does not change entry/exit logic.
+    """
+    tf_ms = TF_MS[tf]
+    expect = (at_ms // tf_ms) * tf_ms - tf_ms  # open time of the last fully closed bar
+    remain = min(tf_ms, 900_000) - (at_ms - (expect + tf_ms))
+    if remain >= 0:
+        return (0, remain, tf_ms)
+    return (1, 0, tf_ms)
+
+
 @dataclass
 class KeyState:
     sym: str
@@ -86,7 +103,8 @@ class Bot:
         self.startup = dict(rest_calls=None, rest_weight=None, warm_done_at=None)
         self.universe_at = 0.0
         self.dirty_event = False
-        self.bf_queue: asyncio.Queue = None
+        self.bf_queue: asyncio.PriorityQueue = asyncio.PriorityQueue()
+        self.bf_seq = 0  # tie-break so equal priorities stay FIFO
         self.bf_inflight: set = set()
         self.publisher = Publisher(self)
         for tr in self.store.load_trades("open"):
@@ -195,7 +213,7 @@ class Bot:
 
     async def backfill_worker(self):
         while True:
-            key = await self.bf_queue.get()
+            _pri, _seq, key = await self.bf_queue.get()
             ks = self.keys.get(key)
             try:
                 if ks is not None:
@@ -213,7 +231,9 @@ class Bot:
         if key not in self.bf_inflight:
             self.bf_inflight.add(key)
             self.counters["gaps"] += 1
-            self.bf_queue.put_nowait(key)
+            self.bf_seq += 1
+            pri = backfill_priority(ks.tf, now_ms())
+            self.bf_queue.put_nowait((pri, self.bf_seq, key))
 
     # ---------------- bar processing ----------------
     def on_closed_bar(self, ks: KeyState, bar):
@@ -402,7 +422,7 @@ class Bot:
                 n += 1
         if n:
             self.counters["catchups"] += n
-            log.info("catch-up: %d pairs missing closed bars scheduled for gap-fill", n)
+            log.info("catch-up: %d pairs missing closed bars scheduled for gap-fill (just-closed bars first)", n)
         return n
 
     def _on_ws(self, raw):
@@ -464,7 +484,6 @@ class Bot:
                 log.exception("periodic")
 
     async def run(self):
-        self.bf_queue = asyncio.Queue()
         async with aiohttp.ClientSession(headers={"User-Agent": "together-trading-bot/1.0"}) as session:
             self.session = session
             self.rest = Rest(self.S.rest_base, self.lim, session)

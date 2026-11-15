@@ -31,7 +31,7 @@ class Rest:
                     if 400 <= r.status < 500:
                         return None
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                log.warning("REST %s error %s", path, e)
+                log.warning("REST %s error %r", path, e)
             await asyncio.sleep(2 * (attempt + 1))
         return None
 

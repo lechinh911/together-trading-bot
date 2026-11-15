@@ -8,9 +8,7 @@ from tbot.strategy import PairStrategy
 
 def make_bot(tmp_path):
     s = Settings(data_dir=str(tmp_path / "d"), push_enabled=False)
-    b = Bot(s)
-    b.bf_queue = asyncio.Queue()
-    return b
+    return Bot(s)
 
 
 def test_gap_buffers_and_schedules_backfill(tmp_path):
